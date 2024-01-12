@@ -24,6 +24,13 @@ package e11y
 program-options
   ghc-options: -Wall -Wunused-packages -Wcompat
 
+
+source-repository-package
+  type: git
+  location: https://github.com/shlevy/general-allocate
+  tag: v0.2.3.0
+  --sha256: 018nsgwf8986c4dqd4z9l3rs9f19xlmlw59rnmm24r28lh7l2x7s
+
 allow-newer:
   aeson:containers,
   hashable:containers,

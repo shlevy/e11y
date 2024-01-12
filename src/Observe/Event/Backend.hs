@@ -11,6 +11,7 @@
 -- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# OPTIONS_HADDOCK not-home #-}
@@ -25,20 +26,36 @@ This is the primary module needed to write new 'EventBackend's.
 -}
 module Observe.Event.Backend where
 
+import Control.Exception
 import Control.Monad.Trans.Class
 import Data.Coerce
 import Data.Kind
 
 -- * Defining backends
 
--- | A resource which can create t'Event's in a given @m@onad
+{- | A resource which can create t'Event's in a given @m@onad
+
+Laws:
+
+  * @finalize x >> finalize y@ = @finalize x@
+-}
 class (Monad m) ⇒ EventBackend m backend where
   -- | Create a new t'Event'.
+  --
+  -- Callers must ensure the resulting 'Event' is
+  -- 'finalize'd; the higher-level [event initialization functions](Observe-Event.html#g:init)
+  -- take care of this for you.
   newEvent
     ∷ backend
     → Selectors (RootSelector backend) field
     -- ^ Select the t'Event's type
     → m (Event backend field)
+
+  -- | End the 'Event', perhaps due to an exception.
+  --
+  -- Implementations should ensure that subsequent 'finalize'ations
+  -- are no-ops.
+  finalize ∷ Event backend field → Maybe SomeException → m ()
 
 {- | An event in a given 'EventBackend'.
 
@@ -67,6 +84,8 @@ type instance RootSelector (LiftBackend backend) = RootSelector backend
 instance (EventBackend m backend, MonadTrans t) ⇒ EventBackend (t m) (LiftBackend backend) where
   newEvent ∷ ∀ field. LiftBackend backend → Selectors (RootSelector backend) field → t m (Event backend field)
   newEvent = (lift .) . coerce (newEvent @m @backend @field)
+  finalize ∷ ∀ field. Event backend field → Maybe SomeException → t m ()
+  finalize = (lift .) . coerce (finalize @m @backend @field)
 
 -- * Selectors
 

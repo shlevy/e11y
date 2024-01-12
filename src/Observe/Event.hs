@@ -49,13 +49,13 @@ module Observe.Event
     SubSelector
   , NoEventsSelector
 
-    -- * Event initialization
+    -- * Event initialization #init#
 
     -- | Actual instrumentation then centers around t'Event's, which can
     -- be initialized in the appropriate [computational contexts](#g:contexts)
     -- given an appropriate [selector](#g:selectorAndField) value.
-  , Event
   , withEvent
+  , Event
   , allocateEvent
 
     -- ** 'Event'-supporting computational contexts #contexts#
@@ -64,20 +64,26 @@ module Observe.Event
 
     -- ** Lower-level 'Event' allocation management
   , SubEventBackend
+  , earlyFinalize
   , allocateEvent'
   )
 where
 
+import Control.Exception
 import Control.Monad.With
+import Data.Exceptable
 import Data.GeneralAllocate
 import Data.Kind
 import Observe.Event.Backend
 
 -- * Event initialization #initialization#
 
--- | Run a computation during an event selected by the [selector](#g:selectorAndField).
+{- | Run a computation during an 'Event' selected by the [selector](#g:selectorAndField).
+
+The 'Event' will be 'finalize'd at the end of the computation.
+-}
 withEvent
-  ∷ (HasEvents m backend selector, MonadWith m)
+  ∷ (HasEvents m backend selector, MonadWithExceptable m)
   ⇒ selector field
   -- ^ The event [selector](#g:selectorAndField)
   → ((HasEvent m backend field) ⇒ m a)
@@ -85,19 +91,23 @@ withEvent
   → m a
 withEvent selector go = generalWith (allocateEvent selector) $ \ev → let ?e11yEvent = ev; ?e11yBackend = SubEventBackend selector ?e11yBackend in go
 
-{- | A t'GeneralAllocate'-ion of a new event, selected by the [selector](#g:selectorAndField).
+{- | A t'GeneralAllocate'-ion of a new 'Event', selected by the [selector](#g:selectorAndField).
+
+The 'Event' with be 'finalize'd upon release.
 
 You will likely want to construct a t'SubEventBackend' to construct a 'HasEvent' context
 when using this 'Event'.
 -}
 allocateEvent
-  ∷ (HasEvents m backend selector)
+  ∷ (HasEvents m backend selector, Exceptable e)
   ⇒ selector field
   -- ^ The event [selector](#g:selectorAndField)
   → GeneralAllocate m e () releaseArg (Event backend field)
 allocateEvent = allocateEvent' . Leaf
 
-{- | A t'GeneralAllocate'-ion of a new event, selected by the sequence of 'Selectors'.
+{- | A t'GeneralAllocate'-ion of a new 'Event', selected by the sequence of 'Selectors'.
+
+The 'Event' with be 'finalize'd upon release.
 
 You probably want 'allocateEvent'.
 
@@ -105,13 +115,29 @@ You will likely want to construct a t'SubEventBackend' to construct a 'HasEvent'
 when using this 'Event'.
 -}
 allocateEvent'
-  ∷ (HasEvents m backend selector)
+  ∷ ∀ m backend selector field e releaseArg
+   . (HasEvents m backend selector, Exceptable e)
   ⇒ Selectors selector field
-  -- ^ A sequence of [selectors](#selector) identify the t'Event's type.
+  -- ^ A sequence of [selectors](#g:selectorAndField) identifying the t'Event's type.
   → GeneralAllocate m e () releaseArg (Event backend field)
 allocateEvent' selectors = GeneralAllocate $ \_ → do
   ev ← newEvent ?e11yBackend selectors
-  pure $ GeneralAllocated ev (const $ pure ())
+  let release (ReleaseFailure e) = finalize @_ @backend ev . Just $ toSomeException e
+      release (ReleaseSuccess _) = finalize @_ @backend ev Nothing
+  pure $ GeneralAllocated ev release
+
+{- | End an 'Event' early, perhaps due to an exception.
+
+Subsequent 'finalize'ations, including those that result from leaving the
+'withEvent' scope or releasing the 'allocateEvent' allocation, will be
+no-ops.
+-}
+earlyFinalize
+  ∷ ∀ m backend field
+   . (HasEvent m backend field)
+  ⇒ Maybe SomeException
+  → m ()
+earlyFinalize = finalize @_ @backend ?e11yEvent
 
 {- | A computational context supporting creating 'Event's from a given [selector](#g:selectorAndField) family.
 
@@ -158,3 +184,4 @@ which yielded this 'Event' to the 'Selectors' given to the t'SubEventBackend'.
 -}
 instance (EventBackend m backend) ⇒ EventBackend m (SubEventBackend backend field) where
   newEvent ev selectors = newEvent ev.backend (ev.selector :/ selectors)
+  finalize = finalize @_ @backend

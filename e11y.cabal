@@ -66,7 +66,7 @@ library
   build-depends:
     , base              ^>= { 4.19 }
     , containers        ^>= { 0.7 }
-    , general-allocate  ^>= { 0.2.2 }
+    , general-allocate  ^>= { 0.2.3 }
     , primitive         ^>= { 0.9 }
     , transformers      ^>= { 0.6 }
 
@@ -81,9 +81,10 @@ test-suite e11y
   build-depends:
     , base
     , e11y
+    , exceptions       ^>= { 0.10 }
     , general-allocate
     , primitive
-    , sydtest           ^>= { 0.15 }
+    , sydtest          ^>= { 0.15 }
     , transformers
 
   default-language: GHC2021

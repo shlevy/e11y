@@ -15,15 +15,19 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
 
 module Main where
 
+import Control.Exception
+import Control.Monad.Catch.Pure (CatchT (..))
+import Control.Monad.Catch.Pure qualified as Catch
 import Control.Monad.Primitive
 import Control.Monad.ST
 import Control.Monad.Trans.Class
-import Control.Monad.Trans.Identity
 import Control.Monad.With
+import Data.Either
 import Data.GeneralAllocate
 import Data.Kind
 import Observe.Event
@@ -46,17 +50,20 @@ data SubTestField
 type instance SubSelector SubTestField = NoEventsSelector
 
 instance Eq (DataEvent TestSelector) where
-  DataEvent (Leaf Test) == DataEvent (Leaf Test) = True
-  DataEvent (Test :/ Leaf SubTest) == DataEvent (Test :/ Leaf SubTest) = True
+  de@(DataEvent (Leaf Test) _) == DataEvent (Leaf Test) e2 = show (err de) == show e2
+  DataEvent (Test :/ Leaf SubTest) e1 == DataEvent (Test :/ Leaf SubTest) e2 = show e1 == show e2
   _ == _ = False
 
-newtype NewIdentityT f a = NewIdentityT {runNewIdentityT ∷ f a}
-  deriving newtype (Functor, Applicative, Monad)
-  deriving (MonadTrans) via IdentityT
+newtype NewCatchT m a = NewCatchT {runNewCatchT ∷ CatchT m a}
+  deriving newtype (Functor, Applicative, Monad, MonadTrans, Catch.MonadThrow)
 
-deriving newtype instance (MonadWith f) ⇒ MonadWith (NewIdentityT f)
+deriving newtype instance (MonadWith m) ⇒ MonadWith (NewCatchT m)
 
-deriving via LiftBackend (DataEventBackend m selector) instance (PrimMonad m) ⇒ EventBackend (NewIdentityT m) (DataEventBackend m selector)
+deriving via LiftBackend (DataEventBackend m selector) instance (PrimMonad m) ⇒ EventBackend (NewCatchT m) (DataEventBackend m selector)
+
+data TestException = TestException deriving (Show)
+
+instance Exception TestException
 
 main ∷ IO ()
 main = sydTest $ do
@@ -68,7 +75,7 @@ main = sydTest $ do
           ?e11yBackend = be
         withEvent Test $ do
           pure ()
-        elem (DataEvent (Leaf Test)) <$> getEvents be
+        elem (DataEvent (Leaf Test) Nothing) <$> getEvents be
     it "sets the backend to accept sub-selectors in the inner scope" $
       runST $ do
         be ← newDataEventBackend
@@ -77,12 +84,45 @@ main = sydTest $ do
         withEvent Test $ do
           withEvent SubTest $ do
             pure ()
-        elem (DataEvent (Test :/ Leaf SubTest)) <$> getEvents be
+        elem (DataEvent (Test :/ Leaf SubTest) Nothing) <$> getEvents be
+    it "records and propagates exceptions" $
+      runST $ do
+        be ← newDataEventBackend
+        let
+          ?e11yBackend = be
+        e_res ← runCatchT . runNewCatchT $ withEvent Test $ do
+          Catch.throwM TestException
+        case e_res of
+          Left e → case fromException e of
+            Just TestException →
+              elem (DataEvent (Leaf Test) (Just (SomeException TestException))) <$> getEvents be
+            Nothing → pure False
+          _ → pure False
   describe "LiftBackend" $
     it "lifts the EventBackend instance through a transformer" $
       runST $ do
         be ← newDataEventBackend @_ @TestSelector
         let
           ?e11yBackend = be
-        runNewIdentityT $ withEvent Test $ do
+        e_res ← runCatchT . runNewCatchT $ withEvent Test $ do
           pure True
+        pure $ fromRight False e_res
+  describe "earlyFinalize" $
+    it "finalizes the event" $
+      runST $ do
+        be ← newDataEventBackend
+        let
+          ?e11yBackend = be
+        withEvent Test $ do
+          earlyFinalize $ Just (SomeException TestException)
+        elem (DataEvent (Leaf Test) (Just (SomeException TestException))) <$> getEvents be
+  describe "DataEventBackend" $
+    it "captures the first event finalization" $
+      runST $ do
+        be ← newDataEventBackend
+        let
+          ?e11yBackend = be
+        withEvent Test $ do
+          earlyFinalize Nothing
+          earlyFinalize $ Just (SomeException TestException)
+        notElem (DataEvent (Leaf Test) (Just (SomeException TestException))) <$> getEvents be
