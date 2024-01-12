@@ -43,7 +43,9 @@ Consumers of instrumentation implement instances of the 'EventBackend' class.
 -}
 module Observe.Event where
 
+import Control.Monad.Trans.Class
 import Control.Monad.With
+import Data.Coerce
 import Data.GeneralAllocate
 import Data.Kind
 import Data.Monoid
@@ -87,10 +89,7 @@ type HasEvent m event field = (?e11yEvent ∷ event field)
 -- * Consuming instrumentation
 
 -- | A resource implementing events of a given [selector](#selector) type in a given @m@onad
-class EventBackend m selector backend where
-  -- | The type of events
-  type Event backend ∷ Type → Type
-
+class (Monad m) ⇒ EventBackend m selector backend where
   -- | Create a new event selected by the [selector](#selector)
   --
   -- Callers will typically want to use the [resource-safe event initialization functions](#initialization)
@@ -101,3 +100,15 @@ class EventBackend m selector backend where
     → selector field
     -- ^ The event [selector](#selector)
     → m (Event backend field)
+
+-- | Events supported by a given 'EventBackend'
+type family Event backend ∷ Type → Type
+
+-- | A @DerivingVia@ helper for lifting 'EventBackend' instances through 'MonadTrans'
+newtype LiftBackend backend = LiftBackend backend
+
+type instance Event (LiftBackend backend) = Event backend
+
+instance (EventBackend m selector backend, MonadTrans t) ⇒ EventBackend (t m) selector (LiftBackend backend) where
+  newEvent ∷ ∀ field. LiftBackend backend → selector field → t m (Event backend field)
+  newEvent = (lift .) . coerce (newEvent @m @selector @backend @field)

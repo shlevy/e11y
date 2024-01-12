@@ -12,7 +12,7 @@
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
 
-index-state: 2024-01-11T00:00:00Z
+index-state: 2024-01-12T00:00:00Z
 packages: .
 tests: True
 
@@ -22,13 +22,17 @@ package e11y
   coverage: True
 
 program-options
-  ghc-options: -Wall
+  ghc-options: -Wall -Wunused-packages -Wcompat
 
 allow-newer:
-  -- https://github.com/shlevy/general-allocate/issues/1
-  general-allocate:base,
+  aeson:containers,
+  hashable:containers,
+  indexed-traversable:containers,
+  scientific:containers,
+  semialign:containers,
   -- https://github.com/diagrams/svg-builder/issues/19
   svg-builder:base,
   svg-builder:text,
   -- https://github.com/judah/terminfo/pull/55#issuecomment-1876894232
-  terminfo:base
+  terminfo:base,
+  witherable:containers

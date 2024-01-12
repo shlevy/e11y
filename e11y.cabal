@@ -62,9 +62,10 @@ library
 
   build-depends:
     , base              ^>= { 4.19 }
-    , containers        ^>= { 0.6 }
-    , general-allocate  ^>= { 0.2 }
-    , primitive         ^>= { 0.8 }
+    , containers        ^>= { 0.7 }
+    , general-allocate  ^>= { 0.2.2 }
+    , primitive         ^>= { 0.9 }
+    , transformers      ^>= { 0.6 }
 
   hs-source-dirs:   src
   default-language: GHC2021
@@ -78,6 +79,8 @@ test-suite e11y
     , base
     , e11y
     , general-allocate
+    , primitive
     , sydtest           ^>= { 0.15 }
+    , transformers
 
   default-language: GHC2021

@@ -60,8 +60,9 @@ data DataEvent selector = ∀ f.
 -- | The 'Event' associated with t'DataEventBackend'.
 data DataEventBackendEvent f = DataEventBackendEvent
 
+type instance Event (DataEventBackend m selector) = DataEventBackendEvent
+
 instance (PrimMonad m) ⇒ EventBackend m selector (DataEventBackend m selector) where
-  type Event (DataEventBackend m selector) = DataEventBackendEvent
   newEvent eb s = do
     atomicModifyMutVar' (coerce eb) (\l → (l |> DataEvent s, ()))
     pure DataEventBackendEvent

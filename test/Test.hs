@@ -11,14 +11,20 @@
 -- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE UnicodeSyntax #-}
 
 module Main where
 
+import Control.Monad.Primitive
 import Control.Monad.ST
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.Identity
 import Control.Monad.With
+import Data.GeneralAllocate
 import Data.Kind
 import Observe.Event
 import Observe.Event.Data
@@ -34,6 +40,14 @@ instrumentedTest ∷ (HasEvents m h TestSelector, MonadWith m) ⇒ m ()
 instrumentedTest = withEvent Test $ do
   pure ()
 
+newtype NewIdentityT f a = NewIdentityT {runNewIdentityT ∷ f a}
+  deriving newtype (Functor, Applicative, Monad)
+  deriving (MonadTrans) via IdentityT
+
+deriving newtype instance (MonadWith f) ⇒ MonadWith (NewIdentityT f)
+
+deriving via LiftBackend (DataEventBackend m (selector ∷ Type → Type)) instance (PrimMonad m) ⇒ EventBackend (NewIdentityT m) selector (DataEventBackend m selector)
+
 main ∷ IO ()
 main = sydTest $ do
   describe "withEvent" $
@@ -44,3 +58,11 @@ main = sydTest $ do
           ?e11yBackend = be
         instrumentedTest
         elem (DataEvent Test) <$> getEvents be
+  describe "LiftBackend" $
+    it "lifts the EventBackend instance through a transformer" $
+      runST $ do
+        be ← newDataEventBackend @_ @TestSelector
+        let
+          ?e11yBackend = be
+        runNewIdentityT instrumentedTest
+        pure True
