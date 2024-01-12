@@ -80,6 +80,7 @@ test-suite e11y
   ghc-options:      -threaded -rtsopts -with-rtsopts=-N
   build-depends:
     , base
+    , containers
     , e11y
     , exceptions       ^>= { 0.10 }
     , general-allocate

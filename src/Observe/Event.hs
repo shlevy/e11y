@@ -35,23 +35,23 @@ module Observe.Event
     -- to the unit of code they're instrumenting:
     --
     -- Selectors are values which designate the general category of event
-    -- being created, parameterized by the type of fields that can be added to it.
+    -- being [created](#g:init), parameterized by the type of fields that can be added to it.
     -- For example, a web service's selector type may have a @ServicingRequest@
     -- constructor, whose field type includes a @ResponseCode@ constructor which
     -- records the HTTP status code. Selectors are intended to be of a domain-specific
     -- type per unit of functionality within an instrumented codebase, implemented as a GADT.
     --
     -- Fields make up the basic data captured in an event. They should be added
-    -- to an 'Event' as the code progresses through various phases of work, and can
-    -- be both milestone markers ("we got this far in the process") or more detailed
-    -- instrumentation ("we've processed N records"). They are intended to be of a
-    -- domain-specific type per unit of functionality within an instrumented codebase.
+    -- to an 'Event' (with 'addEventField') as the code progresses through various
+    -- phases of work, and can be both milestone markers ("we got this far in the process")
+    -- or more detailed instrumentation ("we've processed N records"). They are intended to
+    -- be of a domain-specific type per unit of functionality within an instrumented codebase.
     SubSelector
   , NoEventsSelector
 
     -- * Event initialization #init#
 
-    -- | Actual instrumentation then centers around t'Event's, which can
+    -- | Actual instrumentation centers around t'Event's, which can
     -- be initialized in the appropriate [computational contexts](#g:contexts)
     -- given an appropriate [selector](#g:selectorAndField) value.
   , withEvent
@@ -64,8 +64,14 @@ module Observe.Event
 
     -- ** Lower-level 'Event' allocation management
   , SubEventBackend
-  , earlyFinalize
+  , finalizeEvent
   , allocateEvent'
+
+    -- * Event manipulation
+
+    -- | Once an t'Event' has been [initialized](#g:init), you can add
+    -- [fields](Observe-Event.html#g:selectorAndField) to it (in the appropriate [computational contexts](#g:contexts))
+  , addEventField
   )
 where
 
@@ -126,18 +132,20 @@ allocateEvent' selectors = GeneralAllocate $ \_ → do
       release (ReleaseSuccess _) = finalize @_ @backend ev Nothing
   pure $ GeneralAllocated ev release
 
-{- | End an 'Event' early, perhaps due to an exception.
+{- | End an 'Event' manually, perhaps due to an exception.
+
+Programs should not call 'addEventField' after 'finalizeEvent'.
 
 Subsequent 'finalize'ations, including those that result from leaving the
 'withEvent' scope or releasing the 'allocateEvent' allocation, will be
 no-ops.
 -}
-earlyFinalize
+finalizeEvent
   ∷ ∀ m backend field
    . (HasEvent m backend field)
   ⇒ Maybe SomeException
   → m ()
-earlyFinalize = finalize @_ @backend ?e11yEvent
+finalizeEvent = finalize @_ @backend ?e11yEvent
 
 {- | A computational context supporting creating 'Event's from a given [selector](#g:selectorAndField) family.
 
@@ -185,3 +193,12 @@ which yielded this 'Event' to the 'Selectors' given to the t'SubEventBackend'.
 instance (EventBackend m backend) ⇒ EventBackend m (SubEventBackend backend field) where
   newEvent ev selectors = newEvent ev.backend (ev.selector :/ selectors)
   finalize = finalize @_ @backend
+  addField = addField @_ @backend
+
+-- | Add a [field](Observe-Event.html#g:selectorAndField) to an 'Event'.
+addEventField
+  ∷ ∀ m backend field
+   . (HasEvent m backend field)
+  ⇒ field
+  → m ()
+addEventField = addField @_ @backend ?e11yEvent

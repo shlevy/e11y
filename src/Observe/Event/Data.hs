@@ -62,13 +62,16 @@ data DataEvent selector = ∀ f.
   -- ^ The selector used to initialize the event
   , err ∷ !(Maybe SomeException)
   -- ^ The error which ended the event, if any
+  , fields ∷ !(Seq f)
+  -- ^ The fields which were added to the event
   }
 
 -- | The 'Event' associated with t'DataEventBackend'.
 data DataEventBackendEvent m selector f = DataEventBackendEvent
-  { selectors ∷ Selectors selector f
-  , state ∷ MutVar (PrimState m) (Seq (DataEvent selector))
-  , finalized ∷ MutVar (PrimState m) Bool
+  { selectors ∷ !(Selectors selector f)
+  , backendState ∷ !(MutVar (PrimState m) (Seq (DataEvent selector)))
+  , finalized ∷ !(MutVar (PrimState m) Bool)
+  , fields ∷ !(MutVar (PrimState m) (Seq f))
   }
 
 type instance Event (DataEventBackend m selector) = DataEventBackendEvent m selector
@@ -79,8 +82,13 @@ type instance RootSelector (DataEventBackend m selector) = selector
 instance (PrimMonad m) ⇒ EventBackend m (DataEventBackend m selector) where
   newEvent eb selectors = do
     finalized ← newMutVar False
-    pure DataEventBackendEvent{state = coerce eb, selectors, finalized}
+    fields ← newMutVar empty
+    pure DataEventBackendEvent{backendState = coerce eb, selectors, finalized, fields}
   finalize ev err =
     atomicModifyMutVar' ev.finalized (True,) >>= \case
-      False → atomicModifyMutVar' ev.state (\l → (l |> DataEvent{selectors = ev.selectors, err}, ()))
+      False → do
+        fields ← readMutVar ev.fields
+        atomicModifyMutVar' ev.backendState $ \l → (l |> DataEvent{selectors = ev.selectors, err, fields}, ())
       True → pure ()
+  addField ev f =
+    atomicModifyMutVar' ev.fields $ \fs → (fs |> f, ())

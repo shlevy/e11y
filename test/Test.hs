@@ -14,6 +14,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
@@ -30,6 +31,7 @@ import Control.Monad.With
 import Data.Either
 import Data.GeneralAllocate
 import Data.Kind
+import Data.Sequence
 import Observe.Event
 import Observe.Event.Backend (EventBackend (..), LiftBackend (..))
 import Observe.Event.Data
@@ -38,20 +40,20 @@ import Test.Syd
 data TestSelector ∷ Type → Type where
   Test ∷ TestSelector TestField
 
-data TestField
+data TestField = TestField deriving (Eq)
 
 type instance SubSelector TestField = SubTestSelector
 
 data SubTestSelector ∷ Type → Type where
   SubTest ∷ SubTestSelector SubTestField
 
-data SubTestField
+data SubTestField = SubTestField deriving (Eq)
 
 type instance SubSelector SubTestField = NoEventsSelector
 
 instance Eq (DataEvent TestSelector) where
-  de@(DataEvent (Leaf Test) _) == DataEvent (Leaf Test) e2 = show (err de) == show e2
-  DataEvent (Test :/ Leaf SubTest) e1 == DataEvent (Test :/ Leaf SubTest) e2 = show e1 == show e2
+  de@(DataEvent (Leaf Test) _ fields1) == DataEvent (Leaf Test) e2 fields2 = show (de.err) == show e2 && fields1 == fields2
+  DataEvent (Test :/ Leaf SubTest) e1 fields1 == DataEvent (Test :/ Leaf SubTest) e2 fields2 = show e1 == show e2 && fields1 == fields2
   _ == _ = False
 
 newtype NewCatchT m a = NewCatchT {runNewCatchT ∷ CatchT m a}
@@ -75,7 +77,7 @@ main = sydTest $ do
           ?e11yBackend = be
         withEvent Test $ do
           pure ()
-        elem (DataEvent (Leaf Test) Nothing) <$> getEvents be
+        elem (DataEvent (Leaf Test) Nothing empty) <$> getEvents be
     it "sets the backend to accept sub-selectors in the inner scope" $
       runST $ do
         be ← newDataEventBackend
@@ -83,8 +85,8 @@ main = sydTest $ do
           ?e11yBackend = be
         withEvent Test $ do
           withEvent SubTest $ do
-            pure ()
-        elem (DataEvent (Test :/ Leaf SubTest) Nothing) <$> getEvents be
+            addEventField SubTestField
+        elem (DataEvent (Test :/ Leaf SubTest) Nothing (singleton SubTestField)) <$> getEvents be
     it "records and propagates exceptions" $
       runST $ do
         be ← newDataEventBackend
@@ -95,7 +97,7 @@ main = sydTest $ do
         case e_res of
           Left e → case fromException e of
             Just TestException →
-              elem (DataEvent (Leaf Test) (Just (SomeException TestException))) <$> getEvents be
+              elem (DataEvent (Leaf Test) (Just (SomeException TestException)) empty) <$> getEvents be
             Nothing → pure False
           _ → pure False
   describe "LiftBackend" $
@@ -105,17 +107,27 @@ main = sydTest $ do
         let
           ?e11yBackend = be
         e_res ← runCatchT . runNewCatchT $ withEvent Test $ do
+          addEventField TestField
           pure True
         pure $ fromRight False e_res
-  describe "earlyFinalize" $
+  describe "finalizeEvent" $
     it "finalizes the event" $
       runST $ do
         be ← newDataEventBackend
         let
           ?e11yBackend = be
         withEvent Test $ do
-          earlyFinalize $ Just (SomeException TestException)
-        elem (DataEvent (Leaf Test) (Just (SomeException TestException))) <$> getEvents be
+          finalizeEvent $ Just (SomeException TestException)
+        elem (DataEvent (Leaf Test) (Just (SomeException TestException)) empty) <$> getEvents be
+  describe "addEventField" $
+    it "adds a field to the event" $
+      runST $ do
+        be ← newDataEventBackend
+        let
+          ?e11yBackend = be
+        withEvent Test $ do
+          addEventField TestField
+        elem (DataEvent (Leaf Test) Nothing (singleton TestField)) <$> getEvents be
   describe "DataEventBackend" $
     it "captures the first event finalization" $
       runST $ do
@@ -123,6 +135,6 @@ main = sydTest $ do
         let
           ?e11yBackend = be
         withEvent Test $ do
-          earlyFinalize Nothing
-          earlyFinalize $ Just (SomeException TestException)
-        notElem (DataEvent (Leaf Test) (Just (SomeException TestException))) <$> getEvents be
+          finalizeEvent Nothing
+          finalizeEvent $ Just (SomeException TestException)
+        notElem (DataEvent (Leaf Test) (Just (SomeException TestException)) empty) <$> getEvents be

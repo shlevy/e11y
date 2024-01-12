@@ -53,9 +53,14 @@ class (Monad m) ⇒ EventBackend m backend where
 
   -- | End the 'Event', perhaps due to an exception.
   --
+  -- Callers should not call 'addField' after 'finalize'ation.
+  --
   -- Implementations should ensure that subsequent 'finalize'ations
   -- are no-ops.
   finalize ∷ Event backend field → Maybe SomeException → m ()
+
+  -- | Add a [field](Observe-Event.html#g:selectorAndField) to an 'Event'.
+  addField ∷ Event backend field → field → m ()
 
 {- | An event in a given 'EventBackend'.
 
@@ -86,6 +91,8 @@ instance (EventBackend m backend, MonadTrans t) ⇒ EventBackend (t m) (LiftBack
   newEvent = (lift .) . coerce (newEvent @m @backend @field)
   finalize ∷ ∀ field. Event backend field → Maybe SomeException → t m ()
   finalize = (lift .) . coerce (finalize @m @backend @field)
+  addField ∷ ∀ field. Event backend field → field → t m ()
+  addField = (lift .) . coerce (addField @m @backend @field)
 
 -- * Selectors
 
