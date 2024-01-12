@@ -14,7 +14,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
-{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UnicodeSyntax #-}
 
 module Main where
@@ -27,18 +27,28 @@ import Control.Monad.With
 import Data.GeneralAllocate
 import Data.Kind
 import Observe.Event
+import Observe.Event.Backend (EventBackend (..), LiftBackend (..))
 import Observe.Event.Data
 import Test.Syd
 
 data TestSelector ∷ Type → Type where
-  Test ∷ TestSelector ()
+  Test ∷ TestSelector TestField
+
+data TestField
+
+type instance SubSelector TestField = SubTestSelector
+
+data SubTestSelector ∷ Type → Type where
+  SubTest ∷ SubTestSelector SubTestField
+
+data SubTestField
+
+type instance SubSelector SubTestField = NoEventsSelector
 
 instance Eq (DataEvent TestSelector) where
-  DataEvent Test == DataEvent Test = True
-
-instrumentedTest ∷ (HasEvents m h TestSelector, MonadWith m) ⇒ m ()
-instrumentedTest = withEvent Test $ do
-  pure ()
+  DataEvent (Leaf Test) == DataEvent (Leaf Test) = True
+  DataEvent (Test :/ Leaf SubTest) == DataEvent (Test :/ Leaf SubTest) = True
+  _ == _ = False
 
 newtype NewIdentityT f a = NewIdentityT {runNewIdentityT ∷ f a}
   deriving newtype (Functor, Applicative, Monad)
@@ -46,23 +56,33 @@ newtype NewIdentityT f a = NewIdentityT {runNewIdentityT ∷ f a}
 
 deriving newtype instance (MonadWith f) ⇒ MonadWith (NewIdentityT f)
 
-deriving via LiftBackend (DataEventBackend m (selector ∷ Type → Type)) instance (PrimMonad m) ⇒ EventBackend (NewIdentityT m) selector (DataEventBackend m selector)
+deriving via LiftBackend (DataEventBackend m selector) instance (PrimMonad m) ⇒ EventBackend (NewIdentityT m) (DataEventBackend m selector)
 
 main ∷ IO ()
 main = sydTest $ do
-  describe "withEvent" $
+  describe "withEvent" $ do
     it "creates the event" $
       runST $ do
         be ← newDataEventBackend
         let
           ?e11yBackend = be
-        instrumentedTest
-        elem (DataEvent Test) <$> getEvents be
+        withEvent Test $ do
+          pure ()
+        elem (DataEvent (Leaf Test)) <$> getEvents be
+    it "sets the backend to accept sub-selectors in the inner scope" $
+      runST $ do
+        be ← newDataEventBackend
+        let
+          ?e11yBackend = be
+        withEvent Test $ do
+          withEvent SubTest $ do
+            pure ()
+        elem (DataEvent (Test :/ Leaf SubTest)) <$> getEvents be
   describe "LiftBackend" $
     it "lifts the EventBackend instance through a transformer" $
       runST $ do
         be ← newDataEventBackend @_ @TestSelector
         let
           ?e11yBackend = be
-        runNewIdentityT instrumentedTest
-        pure True
+        runNewIdentityT $ withEvent Test $ do
+          pure True

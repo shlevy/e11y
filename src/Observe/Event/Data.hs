@@ -14,6 +14,7 @@
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UnicodeSyntax #-}
+{-# OPTIONS_HADDOCK not-home #-}
 
 {- |
 Description : Consuming events as data
@@ -24,13 +25,13 @@ Maintainer  : shea@shealevy.com
 This module provides the t'DataEventBackend' 'EventBackend' for consuming events
 by representing them as ordinary Haskell data.
 -}
-module Observe.Event.Data (DataEventBackend, newDataEventBackend, getEvents, DataEvent (..)) where
+module Observe.Event.Data (newDataEventBackend, getEvents, DataEvent (..), Selectors (..), DataEventBackend) where
 
 import Control.Monad.Primitive
 import Data.Coerce
 import Data.Primitive.MutVar
 import Data.Sequence
-import Observe.Event
+import Observe.Event.Backend
 
 {- | An 'EventBackend' for consuming events by representing them as
 ordinary Haskell data.
@@ -53,7 +54,7 @@ getEvents = coerce (readMutVar @m @(Seq (DataEvent selector)))
 -- | A representation of an event.
 data DataEvent selector = ∀ f.
   DataEvent
-  { selector ∷ !(selector f)
+  { selectors ∷ !(Selectors selector f)
   -- ^ The selector used to initialize the event
   }
 
@@ -62,7 +63,10 @@ data DataEventBackendEvent f = DataEventBackendEvent
 
 type instance Event (DataEventBackend m selector) = DataEventBackendEvent
 
-instance (PrimMonad m) ⇒ EventBackend m selector (DataEventBackend m selector) where
+type instance RootSelector (DataEventBackend m selector) = selector
+
+-- | Accumulate 'Event's in a mutable 'Seq' of t'DataEvent's.
+instance (PrimMonad m) ⇒ EventBackend m (DataEventBackend m selector) where
   newEvent eb s = do
     atomicModifyMutVar' (coerce eb) (\l → (l |> DataEvent s, ()))
     pure DataEventBackendEvent

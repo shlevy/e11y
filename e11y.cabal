@@ -22,7 +22,9 @@ description:
   backends. I also want to handle concerns like sampling or client-side aggregation
   of domain-specific instrumentation to keep usage manageable.
 
-  See "Observe.Event" for detailed documentation on instrumenting your code or consuming instrumentation.
+  See "Observe.Event" for detailed documentation on instrumenting your code.
+
+  See "Observe.Event.Backend" for creating a new @EventBackend@ to consume instrumentation.
 
   See "Observe.Event.Data" for an @EventBackend@ that represents the stream of events as ordinary
   Haskell data.
@@ -58,6 +60,7 @@ source-repository head
 library
   exposed-modules:
     Observe.Event
+    Observe.Event.Backend
     Observe.Event.Data
 
   build-depends:
