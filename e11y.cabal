@@ -64,11 +64,12 @@ library
     Observe.Event.Data
 
   build-depends:
-    , base              ^>= { 4.19 }
-    , containers        ^>= { 0.7 }
-    , general-allocate  ^>= { 0.2.3 }
-    , primitive         ^>= { 0.9 }
-    , transformers      ^>= { 0.6 }
+    , base               ^>= { 4.19 }
+    , containers         ^>= { 0.7 }
+    , general-allocate   ^>= { 0.2.3 }
+    , parametric-functor ^>= { 0.1 }
+    , primitive          ^>= { 0.9 }
+    , transformers       ^>= { 0.6 }
 
   hs-source-dirs:   src
   default-language: GHC2021
@@ -82,10 +83,11 @@ test-suite e11y
     , base
     , containers
     , e11y
-    , exceptions       ^>= { 0.10 }
+    , exceptions         ^>= { 0.10 }
     , general-allocate
+    , parametric-functor
     , primitive
-    , sydtest          ^>= { 0.15 }
+    , sydtest            ^>= { 0.15 }
     , transformers
 
   default-language: GHC2021

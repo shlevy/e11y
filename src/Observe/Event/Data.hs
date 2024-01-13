@@ -12,9 +12,7 @@
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# OPTIONS_HADDOCK not-home #-}
@@ -28,67 +26,141 @@ Maintainer  : shea@shealevy.com
 This module provides the t'DataEventBackend' 'EventBackend' for consuming events
 by representing them as ordinary Haskell data.
 -}
-module Observe.Event.Data (newDataEventBackend, getEvents, DataEvent (..), Selectors (..), DataEventBackend) where
+module Observe.Event.Data
+  ( newDataEventBackend
+  , getEvents
+  , DataEvent (..)
+  , Selectors (..)
+  , DataEventBackend
+  , DataEventBackendEvent
+  )
+where
 
 import Control.Exception
 import Control.Monad.Primitive
 import Data.Coerce
+import Data.Functor.Parametric
 import Data.Primitive.MutVar
-import Data.Sequence
+import Data.Sequence as Seq
 import Observe.Event.Backend
 
 {- | An 'EventBackend' for consuming events by representing them as
 ordinary Haskell data.
+
+Create a new one with 'newDataEventBackend'. Get the event data with 'getEvents'.
 -}
-newtype DataEventBackend m selector = DataEventBackend (MutVar (PrimState m) (Seq (DataEvent selector)))
+newtype DataEventBackend m selector = DataEventBackend (MutVar (PrimState m) (Seq (MutVar (PrimState m) (Maybe (PendingDataEvent selector)))))
 
 -- | Allocate a new t'DataEventBackend'
-newDataEventBackend ∷ ∀ m selector. (PrimMonad m, ∀ x y. (Coercible x y) ⇒ Coercible (m x) (m y)) ⇒ m (DataEventBackend m selector)
-newDataEventBackend = coerce $ newMutVar @m (empty @(DataEvent selector))
+newDataEventBackend ∷ ∀ m selector. (PrimMonad m, ParametricFunctor m) ⇒ m (DataEventBackend m selector)
+newDataEventBackend = coerce $ newMutVar @m (empty @(MutVar (PrimState m) (Maybe (PendingDataEvent selector))))
 
--- | Read the events that have been emitted using the t'DataEventBackend'
+{- | Read the events that have been emitted using the t'DataEventBackend'
+
+A 'Nothing' indicates an event that hasn't been 'finalize'd.
+-}
 getEvents
-  ∷ ∀ m selector
-   . (PrimMonad m, ∀ x y. (Coercible x y) ⇒ Coercible (m x) (m y))
+  ∷ (PrimMonad m)
   ⇒ DataEventBackend m selector
-  -- ^ The backend
-  → m (Seq (DataEvent selector))
-getEvents = coerce (readMutVar @m @(Seq (DataEvent selector)))
+  → m (Seq (Maybe (DataEvent selector)))
+getEvents eb = do
+  pendingEvVars ← readMutVar $ coerce eb
+  pendingEvs ← traverse readMutVar pendingEvVars
+  let
+    res = unPend <$> pendingEvs
+    find n = case index res n of
+      Just ev → Right ev
+      Nothing → Left n
+    unPend (Just ev@(PendingDataEvent _ selectors _ _ _ fields)) =
+      Just $
+        DataEvent
+          { idx = ev.reference
+          , parent = find <$> ev.parent
+          , causes = find <$> ev.causes
+          , selectors
+          , err = ev.err
+          , fields
+          }
+    unPend Nothing = Nothing
+  pure res
 
 -- | A representation of an event.
 data DataEvent selector = ∀ f.
   DataEvent
-  { selectors ∷ !(Selectors selector f)
-  -- ^ The selector used to initialize the event
+  { idx ∷ !Int
+  -- ^ This event's index in the sequence of event creations.
+  , selectors ∷ !(Selectors selector f)
+  -- ^ The [selector](Observe-Event.html#g:selectorAndField) used to initialize the event
+  , parent ∷ !(Maybe (Either Int (DataEvent selector)))
+  -- ^ The [parent](Observe-Event.html#g:relationships) of this t'DataEvent', if any.
+  --
+  -- @Left n@ means the parent was the n'th event but wasn't 'finalize'd.
+  , causes ∷ ![Either Int (DataEvent selector)]
+  -- ^ The [causes](Observe-Event.html#g:relationships) of this t'DataEvent'.
+  --
+  -- @Left n@ means the cause was the n'th event but wasn't 'finalize'd.
   , err ∷ !(Maybe SomeException)
   -- ^ The error which ended the event, if any
   , fields ∷ !(Seq f)
   -- ^ The fields which were added to the event
   }
 
+-- | An in-progress representation of an event.
+data PendingDataEvent selector = ∀ f.
+  PendingDataEvent
+  { reference ∷ !Int
+  , selectors ∷ !(Selectors selector f)
+  , parent ∷ !(Maybe Int)
+  , causes ∷ ![Int]
+  , err ∷ !(Maybe SomeException)
+  , fields ∷ !(Seq f)
+  }
+
 -- | The 'Event' associated with t'DataEventBackend'.
 data DataEventBackendEvent m selector f = DataEventBackendEvent
-  { selectors ∷ !(Selectors selector f)
-  , backendState ∷ !(MutVar (PrimState m) (Seq (DataEvent selector)))
-  , finalized ∷ !(MutVar (PrimState m) Bool)
+  { reference ∷ !Int
+  , cell ∷ !(MutVar (PrimState m) (Maybe (PendingDataEvent selector)))
+  , params ∷ !(EventParams selector f Int)
   , fields ∷ !(MutVar (PrimState m) (Seq f))
   }
 
-type instance Event (DataEventBackend m selector) = DataEventBackendEvent m selector
+-- | Consume events by representing them as ordinary Haskell data.
+instance Event (DataEventBackendEvent m selector) where
+  type EventReference (DataEventBackendEvent m selector) = Int
+  reference ev = ev.reference
 
-type instance RootSelector (DataEventBackend m selector) = selector
-
--- | Accumulate 'Event's in a mutable 'Seq' of t'DataEvent's.
-instance (PrimMonad m) ⇒ EventBackend m (DataEventBackend m selector) where
-  newEvent eb selectors = do
-    finalized ← newMutVar False
-    fields ← newMutVar empty
-    pure DataEventBackendEvent{backendState = coerce eb, selectors, finalized, fields}
-  finalize ev err =
-    atomicModifyMutVar' ev.finalized (True,) >>= \case
-      False → do
-        fields ← readMutVar ev.fields
-        atomicModifyMutVar' ev.backendState $ \l → (l |> DataEvent{selectors = ev.selectors, err, fields}, ())
-      True → pure ()
+-- | Consume events by representing them as ordinary Haskell data.
+instance (PrimMonad m) ⇒ EventIn m (DataEventBackendEvent m selector) where
+  finalize ev err = do
+    fields ← readMutVar ev.fields
+    let
+      modify ∷ Maybe (PendingDataEvent selector) → (Maybe (PendingDataEvent selector), ())
+      modify Nothing =
+        ( Just $
+            PendingDataEvent
+              { reference = ev.reference
+              , selectors = ev.params.selectors
+              , parent = ev.params.parent
+              , causes = ev.params.causes
+              , err
+              , fields
+              }
+        , ()
+        )
+      modify n = (n, ())
+    atomicModifyMutVar' ev.cell modify
   addField ev f =
     atomicModifyMutVar' ev.fields $ \fs → (fs |> f, ())
+
+-- | Consume events by representing them as ordinary Haskell data.
+instance EventBackend (DataEventBackend m selector) where
+  type BackendEvent (DataEventBackend m selector) = DataEventBackendEvent m selector
+  type RootSelector (DataEventBackend m selector) = selector
+
+-- | Consume events by representing them as ordinary Haskell data.
+instance (PrimMonad m) ⇒ EventBackendIn m (DataEventBackend m selector) where
+  newEvent eb params = do
+    cell ← newMutVar Nothing
+    ref ← atomicModifyMutVar' (coerce eb) (\evs → (evs |> cell, Seq.length evs))
+    fields ← newMutVar empty
+    pure DataEventBackendEvent{fields, reference = ref, params, cell}

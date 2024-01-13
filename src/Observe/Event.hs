@@ -12,11 +12,14 @@
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE NoFieldSelectors #-}
 
 {- |
 Description : Event-oriented instrumentation
@@ -56,28 +59,47 @@ module Observe.Event
     -- given an appropriate [selector](#g:selectorAndField) value.
   , withEvent
   , Event
-  , allocateEvent
+
+    -- ** Event relationships #relationships#
+
+    -- | 'Event's can be related to each other in two ways: An 'Event' can have
+    -- another 'Event' as a parent, and an 'Event' can have any number of other
+    -- 'Event's as proximate causes.
+    --
+    -- In normal usage, these relationships are handled for you: 'withEvent'
+    -- automatically marks new 'Event's created in the scope of the 'Event'
+    -- as children.
+    --
+    -- If you need to specify more complex relationships, you can get a reference
+    -- to an 'Event' using 'eventReference'. References are monad-independent data
+    -- that can outlive the 'Event' itself, and are used to tell an 'EventBackend'
+    -- which other 'Event's are involved in a new one.
+  , eventReference
+  , withRelatedEvent
+  , allocateRelatedEvent
 
     -- ** 'Event'-supporting computational contexts #contexts#
   , HasEvents
   , HasEvent
+  , HasEventIn
+  , HasSubEvents
 
     -- ** Lower-level 'Event' allocation management
-  , SubEventBackend
-  , finalizeEvent
-  , allocateEvent'
+  , SubEventBackend (..)
+  , allocateEventArgs
 
     -- * Event manipulation
-
-    -- | Once an t'Event' has been [initialized](#g:init), you can add
-    -- [fields](Observe-Event.html#g:selectorAndField) to it (in the appropriate [computational contexts](#g:contexts))
   , addEventField
+  , finalizeEvent
   )
 where
 
+import Control.Applicative
 import Control.Exception
 import Control.Monad.With
+import Data.Coerce
 import Data.Exceptable
+import Data.Functor.Parametric
 import Data.GeneralAllocate
 import Data.Kind
 import Observe.Event.Backend
@@ -86,81 +108,154 @@ import Observe.Event.Backend
 
 {- | Run a computation during an 'Event' selected by the [selector](#g:selectorAndField).
 
+Parentless 'Event's created during the computation will be marked as children of the
+new 'Event'.
+
 The 'Event' will be 'finalize'd at the end of the computation.
+
+See 'withRelatedEvent' if you need to specify [relationships](#g:relationships).
 -}
 withEvent
   ∷ (HasEvents m backend selector, MonadWithExceptable m)
   ⇒ selector field
   -- ^ The event [selector](#g:selectorAndField)
-  → ((HasEvent m backend field) ⇒ m a)
+  → ((HasSubEvents m backend field) ⇒ m a)
   -- ^ The eventful computation
   → m a
-withEvent selector go = generalWith (allocateEvent selector) $ \ev → let ?e11yEvent = ev; ?e11yBackend = SubEventBackend selector ?e11yBackend in go
+withEvent selector = withRelatedEvent selector Nothing []
 
-{- | A t'GeneralAllocate'-ion of a new 'Event', selected by the [selector](#g:selectorAndField).
+{- | Run a computation during an 'Event' selected by the [selector](#g:selectorAndField) and with the given [parent and causes](#g:relationships).
+
+Parentless 'Event's created during the computation will be marked as children of the
+new 'Event'.
+
+The 'Event' will be 'finalize'd at the end of the computation.
+
+See 'withEvent' if you don't need to specify any relationships.
+
+For a more flexible allocation, see 'allocateRelatedEvent'.
+-}
+withRelatedEvent
+  ∷ (HasEvents m backend selector, MonadWithExceptable m)
+  ⇒ selector field
+  -- ^ The event [selector](#g:selectorAndField)
+  → Maybe (EventReference (BackendEvent backend))
+  -- ^ The [parent](#g:relationships) of this event
+  → [EventReference (BackendEvent backend)]
+  -- ^ The [causes](#g:relationships) of this event
+  → ((HasSubEvents m backend field) ⇒ m a)
+  -- ^ The eventful computation
+  → m a
+withRelatedEvent selector parent causes go = generalWith (allocateRelatedEvent selector parent causes) $
+  \ev →
+    let
+      ?e11yEvent = ev
+      ?e11yBackend = SubEventBackend selector ?e11yBackend $ reference ev
+     in
+      go
+
+{- | A t'GeneralAllocate'-ion of a new 'Event', selected by the [selector](#g:selectorAndField)
+and with the given [parent and causes](#g:relationships).
 
 The 'Event' with be 'finalize'd upon release.
 
-You will likely want to construct a t'SubEventBackend' to construct a 'HasEvent' context
-when using this 'Event'.
+See 'allocateEventArgs' for full flexibility in specifying allocation.
+
+You will likely want to construct a t'SubEventBackend' to create a
+'HasSubEvents' context when using this 'Event'.
 -}
-allocateEvent
+allocateRelatedEvent
   ∷ (HasEvents m backend selector, Exceptable e)
   ⇒ selector field
   -- ^ The event [selector](#g:selectorAndField)
-  → GeneralAllocate m e () releaseArg (Event backend field)
-allocateEvent = allocateEvent' . Leaf
+  → Maybe (EventReference (BackendEvent backend))
+  -- ^ The [parent](#g:relationships) of this event
+  → [EventReference (BackendEvent backend)]
+  -- ^ The [causes](#g:relationships) of this event
+  → GeneralAllocate m e () releaseArg (BackendEvent backend field)
+allocateRelatedEvent = ((allocateEventArgs .) .) . (EventParams . Leaf)
 
-{- | A t'GeneralAllocate'-ion of a new 'Event', selected by the sequence of 'Selectors'.
+-- | Get a [reference](#g:relationships) to the current 'Event'.
+eventReference ∷ (HasEvent backend field) ⇒ EventReference (BackendEvent backend)
+eventReference = reference ?e11yEvent
+
+{- | A t'GeneralAllocate'-ion of a new 'Event' described by 'EventParams'
 
 The 'Event' with be 'finalize'd upon release.
 
-You probably want 'allocateEvent'.
+You probably want 'allocateRelatedEvent'.
 
-You will likely want to construct a t'SubEventBackend' to construct a 'HasEvent' context
-when using this 'Event'.
+You will likely want to construct a t'SubEventBackend' to construct a 'HasSubEvents'
+context when using this 'Event'.
 -}
-allocateEvent'
-  ∷ ∀ m backend selector field e releaseArg
-   . (HasEvents m backend selector, Exceptable e)
-  ⇒ Selectors selector field
-  -- ^ A sequence of [selectors](#g:selectorAndField) identifying the t'Event's type.
-  → GeneralAllocate m e () releaseArg (Event backend field)
-allocateEvent' selectors = GeneralAllocate $ \_ → do
-  ev ← newEvent ?e11yBackend selectors
-  let release (ReleaseFailure e) = finalize @_ @backend ev . Just $ toSomeException e
-      release (ReleaseSuccess _) = finalize @_ @backend ev Nothing
+allocateEventArgs
+  ∷ (HasEvents m backend selector, Exceptable e)
+  ⇒ EventParams selector field (EventReference (BackendEvent backend))
+  -- ^ Specify the event, matching the appropriate [selector](Observe-Event.html#g:selectorAndField)
+  -- type for this 'EventBackend'.
+  → GeneralAllocate m e () releaseArg (BackendEvent backend field)
+allocateEventArgs params = GeneralAllocate $ \_ → do
+  ev ← newEvent ?e11yBackend params
+  let release (ReleaseFailure e) = finalize ev . Just $ toSomeException e
+      release (ReleaseSuccess _) = finalize ev Nothing
   pure $ GeneralAllocated ev release
 
-{- | End an 'Event' manually, perhaps due to an exception.
+{- | End the running 'Event' manually, perhaps due to an exception.
 
-Programs should not call 'addEventField' after 'finalizeEvent'.
+It is implementation-specific whether 'addEventField' after 'finalizeEvent'
+has any effect (but it is not an error).
 
 Subsequent 'finalize'ations, including those that result from leaving the
-'withEvent' scope or releasing the 'allocateEvent' allocation, will be
+'withEvent' scope or releasing the 'allocateEventArgs' allocation, will be
 no-ops.
 -}
 finalizeEvent
-  ∷ ∀ m backend field
-   . (HasEvent m backend field)
+  ∷ (HasEventIn m backend field)
   ⇒ Maybe SomeException
   → m ()
-finalizeEvent = finalize @_ @backend ?e11yEvent
+finalizeEvent = finalize ?e11yEvent
 
 {- | A computational context supporting creating 'Event's from a given [selector](#g:selectorAndField) family.
 
 In typical usage, @backend@ will be kept as a type parameter, to be determined
 at the call site by the dynamically-scoped @?e11yBackend@ parameter.
+
+'HasEvents' can be satisfied by binding the @?e11yBackend@ [implicit parameter](https://downloads.haskell.org/ghc/latest/docs/users_guide/exts/implicit_parameters.html)
+to an appropriate value.
 -}
-type HasEvents m backend selector = (?e11yBackend ∷ backend, EventBackend m backend, selector ~ RootSelector backend)
+type HasEvents m backend selector = (?e11yBackend ∷ backend, EventBackendIn m backend, selector ~ RootSelector backend)
+
+{- | A scope containing an event of the given @field@ type.
+
+In typical usage, @event@ and @backend@ will be kept as a type parameters,
+to be determined at the call site by the dynamically-scoped @?e11yEvent@ parameter.
+
+'HasEvent' can be satisfied by binding the @?e11yEvent@ [implicit parameter](https://downloads.haskell.org/ghc/latest/docs/users_guide/exts/implicit_parameters.html)
+to an appropriate value. 'withEvent' handles this for you.
+-}
+type HasEvent backend field = (?e11yEvent ∷ BackendEvent backend field, EventBackend backend)
 
 {- | A computational context occurring during an event of the given @field@ type.
 
 In typical usage, @event@ and @backend@ will be kept as a type parameters,
-to be determined at the call site by the dynamically-scoped @?e11yEvent@ and
-@?e11yBackend@ parameters.
+to be determined at the call site by the dynamically-scoped @?e11yEvent@ parameter.
+
+'HasEventIn' can be satisfied by binding the @?e11yEvent@ [implicit parameter](https://downloads.haskell.org/ghc/latest/docs/users_guide/exts/implicit_parameters.html)
+to an appropriate value. 'withEvent' handles this for you.
 -}
-type HasEvent m backend field = (?e11yEvent ∷ Event backend field, ?e11yBackend ∷ SubEventBackend backend field, EventBackend m backend)
+type HasEventIn m backend field = (HasEvent backend field, EventBackendIn m backend)
+
+{- | A computational context occurring during an event of the given @field@ type, allowing
+the creation of new 'Event's according to its 'SubSelector' which are children of the given
+event.
+
+In typical usage, @event@ and @backend@ will be kept as a type parameters,
+to be determined at the call site by the dynamically-scoped @?e11yEvent@ parameter.
+
+'HasSubEvents' can be satisfied by binding the @?e11yEvent@ and @?e11yBackend@ [implicit parameters](https://downloads.haskell.org/ghc/latest/docs/users_guide/exts/implicit_parameters.html)
+to appropriate values, the latter via v'SubEventBackend'. 'withEvent' handles this for you.
+-}
+type HasSubEvents m backend field = (HasEventIn m backend field, ?e11yBackend ∷ SubEventBackend backend field)
 
 {- | A selector type with no values.
 
@@ -171,34 +266,54 @@ event types generated by 'SubSelector'
 type NoEventsSelector ∷ Type → Type
 data NoEventsSelector f
 
-{- | An 'EventBackend' supporting events within a given 'EventBackend' selected by the 'SubSelector'
-of the given @field@ type.
+{- | An 'EventBackend' to use in the context of a running 'Event'.
+
+It creates events selected by the 'SubSelector' of the event's @field@ type,
+and any parentless events created by it are made children of the event.
 -}
 data SubEventBackend backend field = SubEventBackend
   { selector ∷ !(RootSelector backend field)
   -- ^ The selector of the @backend@ which 'Event's should be nested under.
   , backend ∷ !backend
   -- ^ The underlying @backend@
+  , reference ∷ !(EventReference (BackendEvent backend))
+  -- ^ A [reference](#g:relationships) to the running 'Event'
   }
 
--- | Use the same 'Event' type as the underlying 'EventBackend'
-type instance Event (SubEventBackend backend field) = Event backend
+newtype SubEventBackendEvent backend field field' = SubEventBackendEvent (BackendEvent backend field')
 
--- | t'SubEventBackend's are rooted in the 'SubSelector' of their relevant fields
-type instance RootSelector (SubEventBackend backend field) = SubSelector field
+deriving newtype instance (EventBackend backend) ⇒ Event (SubEventBackendEvent backend field)
 
-{- | Select 'Event's from the parent 'EventBackend' by prepending the selector
-which yielded this 'Event' to the 'Selectors' given to the t'SubEventBackend'.
+deriving newtype instance (EventBackendIn m backend, Monad m) ⇒ EventIn m (SubEventBackendEvent backend field)
+
+{- | Create 'Event's in the parent 'EventBackend' which are children
+of the running 'Event' and are selected by the 'SubSelector' of its
+@field@ type.
 -}
-instance (EventBackend m backend) ⇒ EventBackend m (SubEventBackend backend field) where
-  newEvent ev selectors = newEvent ev.backend (ev.selector :/ selectors)
-  finalize = finalize @_ @backend
-  addField = addField @_ @backend
+instance (EventBackend backend) ⇒ EventBackend (SubEventBackend backend field) where
+  type BackendEvent (SubEventBackend backend field) = SubEventBackendEvent backend field
+  type RootSelector (SubEventBackend backend field) = SubSelector field
 
--- | Add a [field](Observe-Event.html#g:selectorAndField) to an 'Event'.
+{- | Create 'Event's in the parent 'EventBackend' which are children
+of the running 'Event' and are selected by the 'SubSelector' of its
+@field@ type.
+-}
+instance (EventBackendIn m backend, ParametricFunctor m) ⇒ EventBackendIn m (SubEventBackend backend field) where
+  newEvent ∷ ∀ field'. SubEventBackend backend field → EventParams (SubSelector field) field' (EventReference (BackendEvent backend)) → m (SubEventBackendEvent backend field field')
+  newEvent backend params =
+    coerce
+      ( newEvent @m @backend @field'
+          backend.backend
+          ( params
+              { selectors = backend.selector :/ params.selectors
+              , parent = params.parent <|> Just backend.reference
+              }
+          )
+      )
+
+-- | Add a [field](Observe-Event.html#g:selectorAndField) to the running 'Event'.
 addEventField
-  ∷ ∀ m backend field
-   . (HasEvent m backend field)
+  ∷ (HasEventIn m backend field)
   ⇒ field
   → m ()
-addEventField = addField @_ @backend ?e11yEvent
+addEventField = addField ?e11yEvent
