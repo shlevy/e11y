@@ -12,7 +12,7 @@
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
 
-index-state: 2024-01-13T00:00:00Z
+index-state: 2024-01-14T00:00:00Z
 packages: .
 tests: True
 
@@ -23,12 +23,6 @@ package e11y
 
 program-options
   ghc-options: -Wall -Wunused-packages -Wcompat
-
-source-repository-package
-  type: git
-  location: https://github.com/shlevy/parametric-functor
-  tag: v0.1.0.0
-  --sha256: 1fwjpq4zgi4pfqvh6arwrb4fc12rj8kbwrpjdh5y1x9p68vxb32c
 
 allow-newer:
   aeson:containers,
