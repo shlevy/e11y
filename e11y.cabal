@@ -26,8 +26,8 @@ description:
 
   See "Observe.Event.Backend" for creating a new @EventBackend@ to consume instrumentation.
 
-  See "Observe.Event.Data" for an @EventBackend@ that represents the stream of events as ordinary
-  Haskell data.
+  See "Observe.Event.Backend.Data" for an @EventBackend@ that represents the stream of events as
+  ordinary Haskell data.
 bug-reports:     https://github.com/shlevy/e11y/issues
 homepage:        https://github.com/shlevy/e11y
 license:         Apache-2.0
@@ -61,7 +61,7 @@ library
   exposed-modules:
     Observe.Event
     Observe.Event.Backend
-    Observe.Event.Data
+    Observe.Event.Backend.Data
 
   build-depends:
     , base               ^>= { 4.19 }

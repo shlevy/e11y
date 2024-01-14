@@ -27,7 +27,7 @@ Maintainer  : shea@shealevy.com
 This module provides the t'DataEventBackend' 'EventBackend' for consuming events
 by representing them as ordinary Haskell data.
 -}
-module Observe.Event.Data
+module Observe.Event.Backend.Data
   ( newDataEventBackend
   , getEvents
   , DataEvent (..)

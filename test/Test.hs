@@ -35,7 +35,7 @@ import Data.Maybe
 import Data.Sequence
 import Observe.Event
 import Observe.Event.Backend
-import Observe.Event.Data
+import Observe.Event.Backend.Data
 import Test.Syd
 
 data TestSelector ∷ Type → Type where
