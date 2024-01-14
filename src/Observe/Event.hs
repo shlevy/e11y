@@ -58,6 +58,7 @@ module Observe.Event
     -- be initialized in the appropriate [computational contexts](#g:contexts)
     -- given an appropriate [selector](#g:selectorAndField) value.
   , withEvent
+  , instantEvent
   , Event
 
     -- ** Event relationships #relationships#
@@ -77,6 +78,7 @@ module Observe.Event
   , eventReference
   , withRelatedEvent
   , allocateRelatedEvent
+  , instantRelatedEvent
 
     -- ** 'Event'-supporting computational contexts #contexts#
   , HasEvents
@@ -87,6 +89,7 @@ module Observe.Event
     -- ** Lower-level 'Event' allocation management
   , SubEventBackend (..)
   , allocateEventArgs
+  , instantEventArgs
 
     -- * Event manipulation
   , addEventField
@@ -123,6 +126,56 @@ withEvent
   -- ^ The eventful computation
   → m a
 withEvent selector = withRelatedEvent selector Nothing []
+
+{- | Emit an instantaneous 'Event' with the given [selector and fields](#g:selectorAndField).
+
+See 'instantRelatedEvent' if you need to specify [relationships](#g:relationships).
+-}
+instantEvent
+  ∷ (HasEvents m backend selector)
+  ⇒ selector field
+  -- ^ The event [selector](#g:selectorAndField)
+  → [field]
+  -- ^ The [fields](#g:selectorAndField) of the event.
+  → m (EventReference (BackendEvent backend))
+instantEvent selector fields = instantRelatedEvent selector fields Nothing []
+
+{- | Emit an instantaneous 'Event' with the given [selector and fields](#g:selectorAndField)
+and the given [parent and causes](#g:relationships).
+
+See 'instantEvent' if you don't need to specify any relationships.
+
+See 'instantEventArgs' for full control over 'Event' configuration.
+-}
+instantRelatedEvent
+  ∷ (HasEvents m backend selector)
+  ⇒ selector field
+  -- ^ The event [selector](#g:selectorAndField)
+  → [field]
+  -- ^ The [fields](#g:selectorAndField) of the event.
+  → Maybe (EventReference (BackendEvent backend))
+  -- ^ The [parent](#g:relationships) of this event
+  → [EventReference (BackendEvent backend)]
+  -- ^ The [causes](#g:relationships) of this event
+  → m (EventReference (BackendEvent backend))
+instantRelatedEvent selector initialFields parent causes =
+  instantEventArgs $
+    EventParams
+      { selectors = Leaf selector
+      , parent
+      , causes
+      , initialFields
+      }
+
+{- | Emit an instantaneous 'Event' described by t'EventParams'
+
+You probably want 'instantEvent' or 'instantRelatedEvent'
+-}
+instantEventArgs
+  ∷ (HasEvents m backend selector)
+  ⇒ EventParams selector field (EventReference (BackendEvent backend))
+  → m (EventReference (BackendEvent backend))
+instantEventArgs = newInstantEvent ?e11yBackend
 
 {- | Run a computation during an 'Event' selected by the [selector](#g:selectorAndField) and with the given [parent and causes](#g:relationships).
 
@@ -173,13 +226,20 @@ allocateRelatedEvent
   → [EventReference (BackendEvent backend)]
   -- ^ The [causes](#g:relationships) of this event
   → GeneralAllocate m e () releaseArg (BackendEvent backend field)
-allocateRelatedEvent = ((allocateEventArgs .) .) . (EventParams . Leaf)
+allocateRelatedEvent selector parent causes =
+  allocateEventArgs $
+    EventParams
+      { selectors = Leaf selector
+      , causes
+      , parent
+      , initialFields = []
+      }
 
 -- | Get a [reference](#g:relationships) to the current 'Event'.
 eventReference ∷ (HasEvent backend field) ⇒ EventReference (BackendEvent backend)
 eventReference = reference ?e11yEvent
 
-{- | A t'GeneralAllocate'-ion of a new 'Event' described by 'EventParams'
+{- | A t'GeneralAllocate'-ion of a new 'Event' described by t'EventParams'
 
 The 'Event' with be 'finalize'd upon release.
 
@@ -194,8 +254,8 @@ allocateEventArgs
   -- ^ Specify the event, matching the appropriate [selector](Observe-Event.html#g:selectorAndField)
   -- type for this 'EventBackend'.
   → GeneralAllocate m e () releaseArg (BackendEvent backend field)
-allocateEventArgs params = GeneralAllocate $ \_ → do
-  ev ← newEvent ?e11yBackend params
+allocateEventArgs params = GeneralAllocate $ \unmask → do
+  ev ← unmask $ newEvent ?e11yBackend params
   let release (ReleaseFailure e) = finalize ev . Just $ toSomeException e
       release (ReleaseSuccess _) = finalize ev Nothing
   pure $ GeneralAllocated ev release
@@ -294,6 +354,13 @@ instance (EventBackend backend) ⇒ EventBackend (SubEventBackend backend field)
   type BackendEvent (SubEventBackend backend field) = SubEventBackendEvent backend field
   type RootSelector (SubEventBackend backend field) = SubSelector field
 
+subEventParams ∷ SubEventBackend backend field → EventParams (SubSelector field) field' (EventReference (BackendEvent backend)) → EventParams (RootSelector backend) field' (EventReference (BackendEvent backend))
+subEventParams backend params =
+  params
+    { selectors = backend.selector :/ params.selectors
+    , parent = params.parent <|> Just backend.reference
+    }
+
 {- | Create 'Event's in the parent 'EventBackend' which are children
 of the running 'Event' and are selected by the 'SubSelector' of its
 @field@ type.
@@ -301,15 +368,16 @@ of the running 'Event' and are selected by the 'SubSelector' of its
 instance (EventBackendIn m backend, ParametricFunctor m) ⇒ EventBackendIn m (SubEventBackend backend field) where
   newEvent ∷ ∀ field'. SubEventBackend backend field → EventParams (SubSelector field) field' (EventReference (BackendEvent backend)) → m (SubEventBackendEvent backend field field')
   newEvent backend params =
-    coerce
-      ( newEvent @m @backend @field'
-          backend.backend
-          ( params
-              { selectors = backend.selector :/ params.selectors
-              , parent = params.parent <|> Just backend.reference
-              }
-          )
-      )
+    coerce $
+      newEvent @m @backend @field'
+        backend.backend
+        (subEventParams backend params)
+  newInstantEvent ∷ ∀ field'. SubEventBackend backend field → EventParams (SubSelector field) field' (EventReference (BackendEvent backend)) → m (EventReference (BackendEvent backend))
+  newInstantEvent backend params =
+    coerce $
+      newInstantEvent @m @backend @field'
+        backend.backend
+        (subEventParams backend params)
 
 -- | Add a [field](Observe-Event.html#g:selectorAndField) to the running 'Event'.
 addEventField

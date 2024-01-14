@@ -11,6 +11,7 @@
 -- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -32,12 +33,12 @@ module Observe.Event.Data
   , DataEvent (..)
   , Selectors (..)
   , DataEventBackend
-  , DataEventBackendEvent
   )
 where
 
 import Control.Exception
 import Control.Monad.Primitive
+import Control.Monad.Trans.Class
 import Data.Coerce
 import Data.Functor.Parametric
 import Data.Primitive.MutVar
@@ -71,7 +72,7 @@ getEvents eb = do
     find n = case index res n of
       Just ev → Right ev
       Nothing → Left n
-    unPend (Just ev@(PendingDataEvent _ selectors _ _ _ fields)) =
+    unPend (Just ev@(PendingDataEvent _ selectors _ _ _ fields _)) =
       Just $
         DataEvent
           { idx = ev.reference
@@ -80,6 +81,7 @@ getEvents eb = do
           , selectors
           , err = ev.err
           , fields
+          , instant = ev.instant
           }
     unPend Nothing = Nothing
   pure res
@@ -103,6 +105,8 @@ data DataEvent selector = ∀ f.
   -- ^ The error which ended the event, if any
   , fields ∷ !(Seq f)
   -- ^ The fields which were added to the event
+  , instant ∷ !Bool
+  -- ^ Whether the event was emitted instantly.
   }
 
 -- | An in-progress representation of an event.
@@ -114,6 +118,7 @@ data PendingDataEvent selector = ∀ f.
   , causes ∷ ![Int]
   , err ∷ !(Maybe SomeException)
   , fields ∷ !(Seq f)
+  , instant ∷ !Bool
   }
 
 -- | The 'Event' associated with t'DataEventBackend'.
@@ -144,6 +149,7 @@ instance (PrimMonad m) ⇒ EventIn m (DataEventBackendEvent m selector) where
               , causes = ev.params.causes
               , err
               , fields
+              , instant = False
               }
         , ()
         )
@@ -157,10 +163,42 @@ instance EventBackend (DataEventBackend m selector) where
   type BackendEvent (DataEventBackend m selector) = DataEventBackendEvent m selector
   type RootSelector (DataEventBackend m selector) = selector
 
+newCell ∷ (PrimMonad m) ⇒ DataEventBackend m selector → m (MutVar (PrimState m) (Maybe (PendingDataEvent selector)), Int)
+newCell eb = do
+  cell ← newMutVar Nothing
+  ref ← atomicModifyMutVar' (coerce eb) (\evs → (evs |> cell, Seq.length evs))
+  pure (cell, ref)
+
 -- | Consume events by representing them as ordinary Haskell data.
 instance (PrimMonad m) ⇒ EventBackendIn m (DataEventBackend m selector) where
   newEvent eb params = do
-    cell ← newMutVar Nothing
-    ref ← atomicModifyMutVar' (coerce eb) (\evs → (evs |> cell, Seq.length evs))
-    fields ← newMutVar empty
+    (cell, ref) ← newCell eb
+    fields ← newMutVar $ Seq.fromList params.initialFields
     pure DataEventBackendEvent{fields, reference = ref, params, cell}
+  newInstantEvent eb params = do
+    (cell, ref) ← newCell eb
+    writeMutVar cell . Just $
+      PendingDataEvent
+        { reference = ref
+        , selectors = params.selectors
+        , parent = params.parent
+        , causes = params.causes
+        , err = Nothing
+        , fields = Seq.fromList params.initialFields
+        , instant = True
+        }
+    pure ref
+
+deriving via
+  LiftBackendEvent (DataEventBackend m selector)
+  instance
+    (EventBackendIn m' (DataEventBackend m selector), MonadTrans t, ParametricFunctor (t m'))
+    ⇒ EventIn (t m') (DataEventBackendEvent m selector)
+
+deriving via
+  LiftBackend (DataEventBackend m selector)
+  instance
+    (EventBackendIn m' (DataEventBackend m selector), MonadTrans t, ParametricFunctor (t m'), ParametricFunctor m')
+    ⇒ EventBackendIn
+        (t m')
+        (DataEventBackend m selector)

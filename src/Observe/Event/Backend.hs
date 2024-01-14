@@ -39,7 +39,7 @@ import Data.Kind
 
 It must be an 'EventBackendIn' some monad to be useful.
 -}
-class (Event (BackendEvent backend)) ⇒ EventBackend backend where
+class (Event (BackendEvent backend)) ⇒ EventBackend (backend ∷ Type) where
   -- | The 'Event' type this 'EventBackend' can generate.
   --
   -- 'Event's are parameterized by the type of [fields](Observe-Event.html#g:selectorAndField)
@@ -63,6 +63,14 @@ class (EventBackend backend, EventIn m (BackendEvent backend)) ⇒ EventBackendI
     -- type for this 'EventBackend'.
     → m (BackendEvent backend field)
 
+  -- | Create an event which has no duration.
+  --
+  -- Returns a reference to the event.
+  newInstantEvent
+    ∷ backend
+    → EventParams (RootSelector backend) field (EventReference (BackendEvent backend))
+    → m (EventReference (BackendEvent backend))
+
 -- | Parameters specifying a new 'Event'
 data EventParams selector field reference = EventParams
   { selectors ∷ !(Selectors selector field)
@@ -71,6 +79,10 @@ data EventParams selector field reference = EventParams
   -- ^ A [reference](Observe-Event.html#g:relationships) to the parent of the new 'Event', if it has one.
   , causes ∷ ![reference]
   -- ^ [References](Observe-Event.html#g:relationships) to the (proximate) causes of the new 'Event', if any.
+  , initialFields ∷ ![field]
+  -- ^ Fields to add to the 'Event' upon initialization.
+  --
+  -- This is especially useful in conjunction with 'newInstantEvent'
   }
 
 -- | A @DerivingVia@ helper for lifting an 'EventBackend' into a 'MonadTrans'formed monad.
@@ -85,6 +97,8 @@ instance (EventBackend backend) ⇒ EventBackend (LiftBackend backend) where
 instance (EventBackendIn m backend, MonadTrans t, ParametricFunctor m, ParametricFunctor (t m)) ⇒ EventBackendIn (t m) (LiftBackend backend) where
   newEvent ∷ ∀ field. LiftBackend backend → EventParams (RootSelector backend) field (EventReference (BackendEvent backend)) → t m (LiftBackendEvent backend field)
   newEvent = (lift .) . coerce (newEvent @m @backend @field)
+  newInstantEvent ∷ ∀ field. LiftBackend backend → EventParams (RootSelector backend) field (EventReference (BackendEvent backend)) → t m (EventReference (BackendEvent backend))
+  newInstantEvent = (lift .) . coerce (newInstantEvent @m @backend @field)
 
 -- ** Defining event types
 
@@ -93,7 +107,7 @@ a given type.
 
 It must be an 'EventIn' some monad to be useful.
 -}
-class Event event where
+class Event (event ∷ Type → Type) where
   -- | The type of [references](Observe-Event.html#g:relationships) to an 'Event'.
   type EventReference event ∷ Type
 
@@ -119,7 +133,7 @@ class (Event event, Monad m) ⇒ EventIn m event where
   -- | Add a [field](Observe-Event.html#g:selectorAndField) to an 'Event'.
   addField ∷ event field → field → m ()
 
--- | The 'BackendEvent' type for 'LiftBackend'.
+-- | The 'BackendEvent' type for t'LiftBackend'.
 newtype LiftBackendEvent backend field = LiftBackendEvent (BackendEvent backend field)
 
 deriving newtype instance (EventBackend backend) ⇒ Event (LiftBackendEvent backend)

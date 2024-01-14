@@ -11,14 +11,12 @@
 -- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
-{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
@@ -27,15 +25,11 @@ module Main where
 import Control.Exception
 import Control.Monad.Catch.Pure (CatchT (..))
 import Control.Monad.Catch.Pure qualified as Catch
-import Control.Monad.Primitive
 import Control.Monad.ST
 import Control.Monad.Trans.Class
-import Control.Monad.With
 import Data.Coerce
 import Data.Either
 import Data.Foldable
-import Data.Functor.Parametric
-import Data.GeneralAllocate
 import Data.Kind
 import Data.Maybe
 import Data.Sequence
@@ -80,11 +74,12 @@ data DataEventTestSelector = DataEventTestSelector
   , causes ∷ ![Either Int DataEventTestSelector]
   , err ∷ !(Maybe EqSomeException)
   , fields ∷ !DataEventTestSelectorFields
+  , instant ∷ !Bool
   }
   deriving (Eq, Show)
 
 convDataEventTestSelector ∷ DataEvent TestSelector → DataEventTestSelector
-convDataEventTestSelector ev@(DataEvent _ selectors _ _ _ fields) =
+convDataEventTestSelector ev@(DataEvent _ selectors _ _ _ fields _) =
   DataEventTestSelector
     { idx = ev.idx
     , parent = fmap convDataEventTestSelector <$> ev.parent
@@ -92,6 +87,7 @@ convDataEventTestSelector ev@(DataEvent _ selectors _ _ _ fields) =
     , err = coerce ev.err
     , fields = fields'
     , selector
+    , instant = ev.instant
     }
  where
   (fields', selector) = case selectors of
@@ -99,18 +95,6 @@ convDataEventTestSelector ev@(DataEvent _ selectors _ _ _ fields) =
     Test :/ Leaf SubTest → (DataEventTestSelectorSubTestFields (toList fields), DataEventTestSelectorTestSubTest)
     Test :/ SubTest :/ Leaf impossible → case impossible of {}
     Test :/ SubTest :/ impossible :/ _ → case impossible of {}
-
-newtype NewCatchT m a = NewCatchT (CatchT m a)
-  deriving newtype (Functor, Applicative, Monad, MonadTrans, Catch.MonadThrow)
-
-runNewCatchT ∷ NewCatchT m a → CatchT m a
-runNewCatchT = coerce
-
-deriving newtype instance (MonadWith m) ⇒ MonadWith (NewCatchT m)
-
-deriving via LiftBackendEvent (DataEventBackend m selector) instance (PrimMonad m, ParametricFunctor m) ⇒ EventIn (NewCatchT m) (DataEventBackendEvent m selector)
-
-deriving via LiftBackend (DataEventBackend m selector) instance (PrimMonad m, ParametricFunctor m) ⇒ EventBackendIn (NewCatchT m) (DataEventBackend m selector)
 
 newtype TestException = TestException Int deriving (Show)
 
@@ -175,7 +159,7 @@ main = sydTest $ do
           be ← newDataEventBackend
           let
             ?e11yBackend = be
-          e_res ← runCatchT . runNewCatchT $ withEvent Test $ do
+          e_res ← runCatchT $ withEvent Test $ do
             Catch.throwM $ TestException eventReference
           case e_res of
             Left e → case fromException e of
@@ -199,9 +183,17 @@ main = sydTest $ do
         be ← newDataEventBackend @_ @TestSelector
         let
           ?e11yBackend = be
-        e_res ← runCatchT . runNewCatchT $ withEvent Test $ do
+        e_res ← runCatchT $ withEvent Test $ do
           addEventField TestField
-          pure $ reference (LiftBackendEvent ?e11yEvent) == 0
+          subRef ← instantEvent SubTest []
+          evs ← (fmap convDataEventTestSelector <$>) <$> lift (getEvents be)
+          pure $
+            reference (LiftBackendEvent ?e11yEvent) == 0
+              && ( case index evs subRef of
+                    Nothing → False
+                    Just ev → ev.fields == DataEventTestSelectorSubTestFields []
+                 )
+
         pure $ fromRight False e_res
 
   describe "finalizeEvent" $
@@ -299,3 +291,21 @@ main = sydTest $ do
               (\(cause', effect') → effect'.causes == [Right cause'])
           (Nothing, _) → expectationFailure "cause not finalized"
           (_, Nothing) → expectationFailure "effect not finalized"
+
+  describe "instantEvent" $
+    it "emits an event" $
+      let
+        m_ev = runST $ do
+          be ← newDataEventBackend
+          let ?e11yBackend = be
+          idx ← instantEvent Test [TestField]
+          evs ← (fmap convDataEventTestSelector <$>) <$> getEvents be
+          pure $ index evs idx
+       in
+        case m_ev of
+          Nothing → expectationFailure "event not finalized"
+          Just ev →
+            shouldSatisfyNamed
+              ev
+              "is instant has a TestField field"
+              (\ev' → ev'.instant && ev'.fields == DataEventTestSelectorTestFields [TestField])
