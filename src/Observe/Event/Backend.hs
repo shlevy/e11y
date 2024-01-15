@@ -29,6 +29,7 @@ module Observe.Event.Backend where
 
 import Control.Exception
 import Control.Monad.Trans.Class
+import Control.Monad.Trans.Class.Parametric
 import Data.Coerce
 import Data.Functor.Parametric
 import Data.Kind
@@ -94,7 +95,7 @@ instance (EventBackend backend) ⇒ EventBackend (LiftBackend backend) where
   type RootSelector (LiftBackend backend) = RootSelector backend
 
 -- | Lift an 'EventBackend' into a 'MonadTrans'formed @m@onad.
-instance (EventBackendIn m backend, MonadTrans t, ParametricFunctor m, ParametricFunctor (t m)) ⇒ EventBackendIn (t m) (LiftBackend backend) where
+instance (EventBackendIn m backend, ParametricMonadTrans t) ⇒ EventBackendIn (t m) (LiftBackend backend) where
   newEvent ∷ ∀ field. LiftBackend backend → EventParams (RootSelector backend) field (EventReference (BackendEvent backend)) → t m (LiftBackendEvent backend field)
   newEvent = (lift .) . coerce (newEvent @m @backend @field)
   newInstantEvent ∷ ∀ field. LiftBackend backend → EventParams (RootSelector backend) field (EventReference (BackendEvent backend)) → t m (EventReference (BackendEvent backend))
@@ -120,7 +121,7 @@ Laws:
 
   * @finalize x >> finalize y@ = @finalize x@
 -}
-class (Event event, Monad m) ⇒ EventIn m event where
+class (Event event, Monad m, ParametricFunctor m) ⇒ EventIn m event where
   -- | End the 'Event', perhaps due to an exception.
   --
   -- It is implementation-specific whether 'addField' after
@@ -139,7 +140,7 @@ newtype LiftBackendEvent backend field = LiftBackendEvent (BackendEvent backend 
 deriving newtype instance (EventBackend backend) ⇒ Event (LiftBackendEvent backend)
 
 -- | Lift an 'EventBackend' into a 'MonadTrans'formed @m@onad.
-instance (EventBackendIn m backend, MonadTrans t, ParametricFunctor (t m)) ⇒ EventIn (t m) (LiftBackendEvent backend) where
+instance (EventBackendIn m backend, ParametricMonadTrans t) ⇒ EventIn (t m) (LiftBackendEvent backend) where
   finalize ∷ ∀ field. LiftBackendEvent backend field → Maybe SomeException → t m ()
   finalize = (lift .) . coerce (finalize @m @(BackendEvent backend) @field)
   addField ∷ ∀ field. LiftBackendEvent backend field → field → t m ()

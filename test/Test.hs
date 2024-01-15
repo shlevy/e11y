@@ -251,7 +251,13 @@ main = sydTest $ do
 
     it "emits incomplete events as Nothing" $
       let
-        (parentIdx ∷ Int, m_ev) = runST $ do
+        -- The parentIdx type annotation is needed because its
+        -- type inside the block is EventReference (DataEventBackend (ST s) TestSelector.
+        -- s cannot escape from runST, and even though that type is always Int regardless
+        -- of s GHC doesn't know that.
+
+        -- The m_ev type annotation is needed because of https://gitlab.haskell.org/ghc/ghc/-/issues/24333
+        (parentIdx ∷ Int, m_ev ∷ Maybe DataEventTestSelector) = runST $ do
           be ← newDataEventBackend
           let ?e11yBackend = be
           withEvent Test $ do

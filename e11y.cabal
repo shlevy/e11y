@@ -67,7 +67,7 @@ library
     , base               ^>= { 4.19 }
     , containers         ^>= { 0.7 }
     , general-allocate   ^>= { 0.2.3 }
-    , parametric-functor ^>= { 0.1 }
+    , parametric-functor ^>= { 0.1.1 }
     , primitive          ^>= { 0.9 }
     , transformers       ^>= { 0.6 }
 

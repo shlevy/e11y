@@ -38,7 +38,7 @@ where
 
 import Control.Exception
 import Control.Monad.Primitive
-import Control.Monad.Trans.Class
+import Control.Monad.Trans.Class.Parametric
 import Data.Coerce
 import Data.Functor.Parametric
 import Data.Primitive.MutVar
@@ -135,7 +135,7 @@ instance Event (DataEventBackendEvent m selector) where
   reference ev = ev.reference
 
 -- | Consume events by representing them as ordinary Haskell data.
-instance (PrimMonad m) ⇒ EventIn m (DataEventBackendEvent m selector) where
+instance (PrimMonad m, ParametricFunctor m) ⇒ EventIn m (DataEventBackendEvent m selector) where
   finalize ev err = do
     fields ← readMutVar ev.fields
     let
@@ -170,7 +170,7 @@ newCell eb = do
   pure (cell, ref)
 
 -- | Consume events by representing them as ordinary Haskell data.
-instance (PrimMonad m) ⇒ EventBackendIn m (DataEventBackend m selector) where
+instance (PrimMonad m, ParametricFunctor m) ⇒ EventBackendIn m (DataEventBackend m selector) where
   newEvent eb params = do
     (cell, ref) ← newCell eb
     fields ← newMutVar $ Seq.fromList params.initialFields
@@ -192,13 +192,13 @@ instance (PrimMonad m) ⇒ EventBackendIn m (DataEventBackend m selector) where
 deriving via
   LiftBackendEvent (DataEventBackend m selector)
   instance
-    (EventBackendIn m' (DataEventBackend m selector), MonadTrans t, ParametricFunctor (t m'))
+    (EventBackendIn m' (DataEventBackend m selector), ParametricMonadTrans t)
     ⇒ EventIn (t m') (DataEventBackendEvent m selector)
 
 deriving via
   LiftBackend (DataEventBackend m selector)
   instance
-    (EventBackendIn m' (DataEventBackend m selector), MonadTrans t, ParametricFunctor (t m'), ParametricFunctor m')
+    (EventBackendIn m' (DataEventBackend m selector), ParametricMonadTrans t)
     ⇒ EventBackendIn
         (t m')
         (DataEventBackend m selector)

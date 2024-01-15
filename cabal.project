@@ -24,6 +24,12 @@ package e11y
 program-options
   ghc-options: -Wall -Wunused-packages -Wcompat
 
+source-repository-package
+  type: git
+  location: https://github.com/shlevy/parametric-functor
+  tag: v0.1.1.0
+  --sha256: 1qqgdp7ji7f9fbkizm2hj1wa034vpdbsyvdlzh0bwdwn1pimrs9c
+
 allow-newer:
   aeson:containers,
   hashable:containers,
