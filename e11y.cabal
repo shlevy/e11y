@@ -83,8 +83,10 @@ test-suite e11y
     , base
     , containers
     , e11y
-    , exceptions   ^>= { 0.10 }
-    , sydtest      ^>= { 0.15 }
+    , exceptions      ^>= { 0.10 }
+    , general-allocate
+    , strict-identity ^>= { 0.1 }
+    , sydtest         ^>= { 0.15 }
     , transformers
 
   default-language: GHC2021

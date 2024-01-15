@@ -11,7 +11,9 @@
 -- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# OPTIONS_HADDOCK not-home #-}
 
@@ -23,15 +25,31 @@ Maintainer  : shea@shealevy.com
 
 This is the primary module needed to write a new 'EventBackend' and make it an 'EventBackendIn' relevant monads.
 -}
-module Observe.Event.Backend where
+module Observe.Event.Backend
+  ( -- * Defining backends
+    EventBackend (..)
+  , EventBackendIn (..)
+  , EventParams (..)
+
+    -- ** Defining event types
+  , Event (..)
+  , EventIn (..)
+
+    -- * Selectors
+  , Selectors (..)
+  , SubSelector
+  )
+where
 
 import Control.Exception
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Class.Parametric
+import Control.Monad.Zip
+import Data.Functor.Const
 import Data.Functor.Parametric
+import Data.Functor.Product
 import Data.Kind
-
--- * Defining backends
+import Data.Proxy
 
 {- | A resource allowing creation of new 'Event's.
 
@@ -83,6 +101,38 @@ data EventParams selector field reference = EventParams
   -- This is especially useful in conjunction with 'newInstantEvent'
   }
 
+-- | An 'EventBackend' that does nothing.
+instance EventBackend (Proxy (selector ∷ Type → Type)) where
+  type BackendEvent (Proxy selector) = Const (Proxy selector)
+  type RootSelector (Proxy selector) = selector
+
+-- | An 'EventBackend' that does nothing.
+instance (Monad m, ParametricFunctor m) ⇒ EventBackendIn m (Proxy (selector ∷ Type → Type)) where
+  newEvent _ _ = pure $ Const Proxy
+  newInstantEvent _ _ = pure ()
+
+{- | Combine two 'EventBackend's.
+
+All operations are performed sequentially, with no
+exception safety between calls.
+-}
+instance (EventBackend b1, EventBackend b2, RootSelector b1 ~ RootSelector b2) ⇒ EventBackend (b1, b2) where
+  type BackendEvent (b1, b2) = Product (BackendEvent b1) (BackendEvent b2)
+  type RootSelector (b1, b2) = RootSelector b1
+
+{- | Combine two 'EventBackend's.
+
+All operations are performed sequentially, with no
+exception safety between calls.
+-}
+instance (EventBackendIn m b1, EventBackendIn m b2, RootSelector b1 ~ RootSelector b2) ⇒ EventBackendIn m (b1, b2) where
+  newEvent (b1, b2) args = Pair <$> newEvent b1 args1 <*> newEvent b2 args2
+   where
+    (args1, args2) = unwrapPairParams args
+  newInstantEvent (b1, b2) args = (,) <$> newInstantEvent b1 args1 <*> newInstantEvent b2 args2
+   where
+    (args1, args2) = unwrapPairParams args
+
 {- | Lift an 'EventBackend' into a 'MonadTrans'formed @m@onad.
 
 Note that this instance is [incoherent](https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/instances.html#overlapping-instances),
@@ -91,8 +141,6 @@ so it can be overridden for your @backend@ if need be. This instance will still 
 instance {-# INCOHERENT #-} (EventBackendIn m backend, ParametricMonadTrans t) ⇒ EventBackendIn (t m) backend where
   newEvent = (lift .) . newEvent
   newInstantEvent = (lift .) . newInstantEvent
-
--- ** Defining event types
 
 {- | A resource allowing instrumentation of code via [fields](Observe-Event.html#g:selectorAndField) of
 a given type.
@@ -124,6 +172,43 @@ class (Event event, Monad m, ParametricFunctor m) ⇒ EventIn m event where
 
   -- | Add a [field](Observe-Event.html#g:selectorAndField) to an 'Event'.
   addField ∷ event field → field → m ()
+
+-- | An 'EventBackend' that does nothing.
+instance Event (Const (Proxy (selector ∷ Type → Type))) where
+  type EventReference (Const (Proxy selector)) = ()
+  reference _ = ()
+
+-- | An 'EventBackend' that does nothing.
+instance (Monad m, ParametricFunctor m) ⇒ EventIn m (Const (Proxy (selector ∷ Type → Type))) where
+  finalize _ _ = pure ()
+  addField _ _ = pure ()
+
+{- | Combine two 'EventBackend's.
+
+All operations are performed sequentially, with no
+exception safety between calls.
+-}
+instance (Event e1, Event e2) ⇒ Event (Product e1 e2) where
+  type EventReference (Product e1 e2) = (EventReference e1, EventReference e2)
+  reference (Pair e1 e2) = (reference e1, reference e2)
+
+{- | Combine two 'EventBackend's.
+
+All operations are performed sequentially, with no
+exception safety between calls.
+-}
+instance (EventIn m e1, EventIn m e2) ⇒ EventIn m (Product e1 e2) where
+  finalize (Pair e1 e2) err = finalize e1 err >> finalize e2 err
+  addField (Pair e1 e2) f = addField e1 f >> addField e2 f
+
+unwrapPairParams ∷ EventParams selector field (r1, r2) → (EventParams selector field r1, EventParams selector field r2)
+unwrapPairParams params =
+  ( params{parent = parent1, causes = causes1}
+  , params{parent = parent2, causes = causes2}
+  )
+ where
+  (parent1, parent2) = munzip params.parent
+  (causes1, causes2) = munzip params.causes
 
 {- | Lift an 'Event' into a 'MonadTrans'formed @m@onad.
 

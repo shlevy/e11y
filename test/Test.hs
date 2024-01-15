@@ -11,14 +11,16 @@
 -- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
-{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE NoFieldSelectors #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Main where
 
@@ -26,17 +28,23 @@ import Control.Exception
 import Control.Monad.Catch.Pure (CatchT (..))
 import Control.Monad.Catch.Pure qualified as Catch
 import Control.Monad.ST
+import Control.Monad.StrictIdentity
 import Control.Monad.Trans.Class
+import Control.Monad.With
 import Data.Coerce
 import Data.Either
 import Data.Foldable
+import Data.GeneralAllocate
 import Data.Kind
 import Data.Maybe
+import Data.Proxy
 import Data.Sequence
 import Observe.Event
 import Observe.Event.Backend
 import Observe.Event.Backend.Data
 import Test.Syd
+
+deriving via WithNoContinuation StrictIdentity instance MonadWith StrictIdentity
 
 data TestSelector ∷ Type → Type where
   Test ∷ TestSelector TestField
@@ -312,3 +320,62 @@ main = sydTest $ do
               ev
               "is instant has a TestField field"
               (\ev' → ev'.instant && ev'.fields == DataEventTestSelectorTestFields [TestField])
+
+  describe "the no-op EventBackend instance for Proxy" $
+    it "does nothing successfully" $
+      runStrictIdentity $ do
+        let ?e11yBackend = Proxy @TestSelector
+        () ← withEvent Test $ do
+          addEventField TestField
+          let !_ = eventReference
+          finalizeEvent Nothing
+          instantEvent SubTest [SubTestField]
+        pure True
+
+  describe "the backend-combining EventBackend instance for (,)" $
+    it "sequentially calls both backends" $
+      let
+        (evs1, evs2, idx1s ∷ (Int, Int), idx2s ∷ (Int, Int)) = runST $ do
+          be1 ← newDataEventBackend
+          be2 ← newDataEventBackend
+          let ?e11yBackend = (be1, be2)
+          (idx1, idx2) ← withEvent Test $ do
+            addEventField TestField
+            let idx1 = eventReference
+            idx2 ← instantEvent SubTest [SubTestField]
+            finalizeEvent Nothing
+            pure (idx1, idx2)
+          (,,idx1,idx2)
+            <$> ((fmap convDataEventTestSelector <$>) <$> getEvents be1)
+            <*> ((fmap convDataEventTestSelector <$>) <$> getEvents be2)
+        (idx11, idx12) = idx1s
+        (idx21, idx22) = idx2s
+        expectedEv1 =
+          DataEventTestSelector
+            { idx = 0
+            , selector = DataEventTestSelectorTest
+            , parent = Nothing
+            , causes = []
+            , err = Nothing
+            , fields = DataEventTestSelectorTestFields [TestField]
+            , instant = False
+            }
+        expectedEv2 =
+          DataEventTestSelector
+            { idx = 1
+            , selector = DataEventTestSelectorTestSubTest
+            , parent = Just (Right expectedEv1)
+            , causes = []
+            , err = Nothing
+            , fields = DataEventTestSelectorSubTestFields [SubTestField]
+            , instant = True
+            }
+       in
+        do
+          shouldBe idx11 idx12
+          shouldBe idx21 idx22
+          evs ←
+            if evs1 == evs2
+              then pure evs1
+              else expectationFailure "event lists don't match"
+          shouldBe evs $ fromList [Just expectedEv1, Just expectedEv2]

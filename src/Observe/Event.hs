@@ -281,7 +281,7 @@ In typical usage, @backend@ will be kept as a type parameter, to be determined
 at the call site by the dynamically-scoped @?e11yBackend@ parameter.
 
 'HasEvents' can be satisfied by binding the @?e11yBackend@ [implicit parameter](https://downloads.haskell.org/ghc/latest/docs/users_guide/exts/implicit_parameters.html)
-to an appropriate value.
+to an appropriate value. 'Proxy' @selector@ can be used as a no-op 'EventBackend', and a pair of backends with the same 'RootSelector' can be used as a backend as well.
 -}
 type HasEvents m backend selector = (?e11yBackend ∷ backend, EventBackendIn m backend, selector ~ RootSelector backend)
 
