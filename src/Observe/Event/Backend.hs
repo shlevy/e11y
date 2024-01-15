@@ -11,9 +11,7 @@
 -- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
-{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# OPTIONS_HADDOCK not-home #-}
 
@@ -30,7 +28,6 @@ module Observe.Event.Backend where
 import Control.Exception
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Class.Parametric
-import Data.Coerce
 import Data.Functor.Parametric
 import Data.Kind
 
@@ -86,20 +83,14 @@ data EventParams selector field reference = EventParams
   -- This is especially useful in conjunction with 'newInstantEvent'
   }
 
--- | A @DerivingVia@ helper for lifting an 'EventBackend' into a 'MonadTrans'formed monad.
-newtype LiftBackend backend = LiftBackend backend
+{- | Lift an 'EventBackend' into a 'MonadTrans'formed @m@onad.
 
--- | Lift an 'EventBackend' into a 'MonadTrans'formed monad.
-instance (EventBackend backend) ⇒ EventBackend (LiftBackend backend) where
-  type BackendEvent (LiftBackend backend) = LiftBackendEvent backend
-  type RootSelector (LiftBackend backend) = RootSelector backend
-
--- | Lift an 'EventBackend' into a 'MonadTrans'formed @m@onad.
-instance (EventBackendIn m backend, ParametricMonadTrans t) ⇒ EventBackendIn (t m) (LiftBackend backend) where
-  newEvent ∷ ∀ field. LiftBackend backend → EventParams (RootSelector backend) field (EventReference (BackendEvent backend)) → t m (LiftBackendEvent backend field)
-  newEvent = (lift .) . coerce (newEvent @m @backend @field)
-  newInstantEvent ∷ ∀ field. LiftBackend backend → EventParams (RootSelector backend) field (EventReference (BackendEvent backend)) → t m (EventReference (BackendEvent backend))
-  newInstantEvent = (lift .) . coerce (newInstantEvent @m @backend @field)
+Note that this instance is [incoherent](https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/instances.html#overlapping-instances),
+so it can be overridden for your @backend@ if need be. This instance will still be used in monad-generic code, however.
+-}
+instance {-# INCOHERENT #-} (EventBackendIn m backend, ParametricMonadTrans t) ⇒ EventBackendIn (t m) backend where
+  newEvent = (lift .) . newEvent
+  newInstantEvent = (lift .) . newInstantEvent
 
 -- ** Defining event types
 
@@ -134,17 +125,14 @@ class (Event event, Monad m, ParametricFunctor m) ⇒ EventIn m event where
   -- | Add a [field](Observe-Event.html#g:selectorAndField) to an 'Event'.
   addField ∷ event field → field → m ()
 
--- | The 'BackendEvent' type for t'LiftBackend'.
-newtype LiftBackendEvent backend field = LiftBackendEvent (BackendEvent backend field)
+{- | Lift an 'Event' into a 'MonadTrans'formed @m@onad.
 
-deriving newtype instance (EventBackend backend) ⇒ Event (LiftBackendEvent backend)
-
--- | Lift an 'EventBackend' into a 'MonadTrans'formed @m@onad.
-instance (EventBackendIn m backend, ParametricMonadTrans t) ⇒ EventIn (t m) (LiftBackendEvent backend) where
-  finalize ∷ ∀ field. LiftBackendEvent backend field → Maybe SomeException → t m ()
-  finalize = (lift .) . coerce (finalize @m @(BackendEvent backend) @field)
-  addField ∷ ∀ field. LiftBackendEvent backend field → field → t m ()
-  addField = (lift .) . coerce (addField @m @(BackendEvent backend) @field)
+Note that this instance is [incoherent](https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/instances.html#overlapping-instances),
+so it can be overridden for your @event@ type if need be. This instance will still be used in monad-generic code, however.
+-}
+instance {-# INCOHERENT #-} (EventIn m event, ParametricMonadTrans t) ⇒ EventIn (t m) event where
+  finalize = (lift .) . finalize
+  addField = (lift .) . addField
 
 -- * Selectors
 

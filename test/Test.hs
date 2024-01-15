@@ -177,7 +177,7 @@ main = sydTest $ do
               "was finalized with a TestException"
               (maybe False (\ev → ev.err == (Just . EqSomeException . SomeException $ TestException ev.idx)))
 
-  describe "LiftBackend" $
+  describe "the MonadTrans EventBackendIn instance" $
     it "lifts the EventBackend instance through a transformer" $
       runST $ do
         be ← newDataEventBackend @_ @TestSelector
@@ -187,12 +187,9 @@ main = sydTest $ do
           addEventField TestField
           subRef ← instantEvent SubTest []
           evs ← (fmap convDataEventTestSelector <$>) <$> lift (getEvents be)
-          pure $
-            reference (LiftBackendEvent ?e11yEvent) == 0
-              && ( case index evs subRef of
-                    Nothing → False
-                    Just ev → ev.fields == DataEventTestSelectorSubTestFields []
-                 )
+          pure $ case index evs subRef of
+            Nothing → False
+            Just ev → ev.fields == DataEventTestSelectorSubTestFields []
 
         pure $ fromRight False e_res
 

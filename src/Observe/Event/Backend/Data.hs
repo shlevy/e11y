@@ -11,7 +11,6 @@
 -- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
-{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -38,7 +37,6 @@ where
 
 import Control.Exception
 import Control.Monad.Primitive
-import Control.Monad.Trans.Class.Parametric
 import Data.Coerce
 import Data.Functor.Parametric
 import Data.Primitive.MutVar
@@ -188,17 +186,3 @@ instance (PrimMonad m, ParametricFunctor m) ⇒ EventBackendIn m (DataEventBacke
         , instant = True
         }
     pure ref
-
-deriving via
-  LiftBackendEvent (DataEventBackend m selector)
-  instance
-    (EventBackendIn m' (DataEventBackend m selector), ParametricMonadTrans t)
-    ⇒ EventIn (t m') (DataEventBackendEvent m selector)
-
-deriving via
-  LiftBackend (DataEventBackend m selector)
-  instance
-    (EventBackendIn m' (DataEventBackend m selector), ParametricMonadTrans t)
-    ⇒ EventBackendIn
-        (t m')
-        (DataEventBackend m selector)
