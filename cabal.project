@@ -15,6 +15,7 @@
 index-state: 2024-01-14T00:00:00Z
 packages: .
 tests: True
+test-show-details: streaming
 
 -- Work around https://github.com/input-output-hk/haskell.nix/issues/2141
 -- Once that's fixed we can just have a top-level @coverage: True@ setting

@@ -40,7 +40,6 @@ import Data.Maybe
 import Data.Proxy
 import Data.Sequence
 import Observe.Event
-import Observe.Event.Backend
 import Observe.Event.Backend.Data
 import Test.Syd
 

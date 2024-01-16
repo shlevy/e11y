@@ -12,7 +12,7 @@
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
 {-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE TypeFamilyDependencies #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# OPTIONS_HADDOCK not-home #-}
@@ -60,7 +60,7 @@ class (Event (BackendEvent backend)) ⇒ EventBackend (backend ∷ Type) where
   --
   -- 'Event's are parameterized by the type of [fields](Observe-Event.html#g:selectorAndField)
   -- they support.
-  type BackendEvent backend = (event ∷ Type → Type) | event → backend
+  type BackendEvent backend ∷ Type → Type
 
   -- | The root of the [selector tree](Observe-Event.html#g:selectorAndField) this 'EventBackend' supports.
   type RootSelector backend ∷ Type → Type
@@ -103,12 +103,12 @@ data EventParams selector field reference = EventParams
 
 -- | An 'EventBackend' that does nothing.
 instance EventBackend (Proxy (selector ∷ Type → Type)) where
-  type BackendEvent (Proxy selector) = Const (Proxy selector)
+  type BackendEvent (Proxy selector) = Const ()
   type RootSelector (Proxy selector) = selector
 
 -- | An 'EventBackend' that does nothing.
 instance (Monad m, ParametricFunctor m) ⇒ EventBackendIn m (Proxy (selector ∷ Type → Type)) where
-  newEvent _ _ = pure $ Const Proxy
+  newEvent _ _ = pure $ Const ()
   newInstantEvent _ _ = pure ()
 
 {- | Combine two 'EventBackend's.
@@ -174,12 +174,12 @@ class (Event event, Monad m, ParametricFunctor m) ⇒ EventIn m event where
   addField ∷ event field → field → m ()
 
 -- | An 'EventBackend' that does nothing.
-instance Event (Const (Proxy (selector ∷ Type → Type))) where
-  type EventReference (Const (Proxy selector)) = ()
+instance Event (Const ()) where
+  type EventReference (Const ()) = ()
   reference _ = ()
 
 -- | An 'EventBackend' that does nothing.
-instance (Monad m, ParametricFunctor m) ⇒ EventIn m (Const (Proxy (selector ∷ Type → Type))) where
+instance (Monad m, ParametricFunctor m) ⇒ EventIn m (Const ()) where
   finalize _ _ = pure ()
   addField _ _ = pure ()
 
