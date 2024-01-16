@@ -57,20 +57,25 @@ data SubTestField = SubTestField deriving (Eq, Show)
 type instance SubSelector SubTestField = NoEventsSelector
 
 renderTestSelector ∷ RenderOTel TestSelector
-renderTestSelector (Leaf Test) =
-  OTelRendered
-    { eventName = "test"
-    , eventKind = Internal
-    , renderField = \TestField → singleton "test-field" (AttributeValue $ BoolAttribute True)
+renderTestSelector = selectorRendering $ \Test →
+  SelectorRendering
+    { renderTopSelector =
+        OTelRendered
+          { eventName = "test"
+          , eventKind = Internal
+          , renderField = \TestField → singleton "test-field" (AttributeValue $ BoolAttribute True)
+          }
+    , renderSubSelector = renderSubTestSelector
     }
-renderTestSelector (Test :/ Leaf SubTest) =
-  OTelRendered
-    { eventName = "sub-test"
-    , eventKind = Internal
-    , renderField = \SubTestField → singleton "sub-test-field" (AttributeValue $ BoolAttribute True)
-    }
-renderTestSelector (Test :/ SubTest :/ Leaf impossible) = case impossible of {}
-renderTestSelector (Test :/ SubTest :/ impossible :/ _) = case impossible of {}
+
+renderSubTestSelector ∷ RenderOTel SubTestSelector
+renderSubTestSelector = selectorRendering $ \SubTest →
+  noSubEventsSelectorRendering $
+    OTelRendered
+      { eventName = "sub-test"
+      , eventKind = Internal
+      , renderField = \SubTestField → singleton "sub-test-field" (AttributeValue $ BoolAttribute True)
+      }
 
 data TestException = TestException deriving (Show)
 

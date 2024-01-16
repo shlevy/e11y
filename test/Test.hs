@@ -15,6 +15,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -34,6 +35,7 @@ import Control.Monad.With
 import Data.Coerce
 import Data.Either
 import Data.Foldable
+import Data.Functor.Identity
 import Data.GeneralAllocate
 import Data.Kind
 import Data.Maybe
@@ -106,6 +108,27 @@ convDataEventTestSelector ev@(DataEvent _ selectors _ _ _ fields _) =
 newtype TestException = TestException Int deriving (Show)
 
 instance Exception TestException
+
+data ParentSelector field where
+  ParentA ∷ ParentSelector AField
+  ParentB ∷ ParentSelector BField
+
+newtype AField = AField Int deriving (Eq)
+
+type instance SubSelector AField = NoEventsSelector
+
+data BField = BYes | BNo deriving (Eq)
+
+type instance SubSelector BField = ChildSelector
+
+data ChildSelector field where
+  Child ∷ ChildSelector CField
+
+data CField = CField deriving (Eq)
+
+type instance SubSelector CField = NoEventsSelector
+
+data SomeSelectors = ∀ field. (Eq field) ⇒ SomeSelectors (Selectors ParentSelector field)
 
 main ∷ IO ()
 main = sydTest $ do
@@ -378,3 +401,40 @@ main = sydTest $ do
               then pure evs1
               else expectationFailure "event lists don't match"
           shouldBe evs $ fromList [Just expectedEv1, Just expectedEv2]
+  describe "selectorRendering" $
+    it "matches a manual definition" $
+      let
+        possibleSelectors =
+          [ SomeSelectors (Leaf ParentA)
+          , SomeSelectors (Leaf ParentB)
+          , SomeSelectors (ParentB :/ Leaf Child)
+          ]
+        manual ∷ Selectors ParentSelector field → field
+        manual (Leaf ParentA) = AField 0
+        manual (ParentA :/ Leaf impossible) = case impossible of {}
+        manual (ParentA :/ impossible :/ _) = case impossible of {}
+        manual (Leaf ParentB) = BYes
+        manual (ParentB :/ Leaf Child) = CField
+        manual (ParentB :/ Child :/ Leaf impossible) = case impossible of {}
+        manual (ParentB :/ Child :/ impossible :/ _) = case impossible of {}
+
+        usingSelectorRendering ∷ Selectors ParentSelector field → field
+        usingSelectorRendering =
+          runIdentity
+            . selectorRendering
+              ( \case
+                  ParentA → noSubEventsSelectorRendering (Identity $ AField 0)
+                  ParentB →
+                    SelectorRendering
+                      { renderTopSelector = Identity BYes
+                      , renderSubSelector = renderChildSelector
+                      }
+              )
+        renderChildSelector ∷ Selectors ChildSelector field → Identity field
+        renderChildSelector = selectorRendering $ \Child →
+          noSubEventsSelectorRendering $ Identity CField
+
+        predicate ∷ SomeSelectors → Bool
+        predicate (SomeSelectors sel) = manual sel == usingSelectorRendering sel
+       in
+        all predicate possibleSelectors
