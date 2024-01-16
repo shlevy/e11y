@@ -51,7 +51,7 @@ copyright:
 category:        Observability
 build-type:      Simple
 extra-doc-files: CHANGELOG.md
-tested-with:     GHC == { 9.8.1 }
+tested-with:     GHC == { 9.2.8, 9.4.8, 9.6.4, 9.8.1 }
 
 source-repository head
   type:     git
@@ -62,16 +62,22 @@ library
     Observe.Event
     Observe.Event.Backend
     Observe.Event.Backend.Data
+    Observe.Event.Compat
 
   build-depends:
-    , base               ^>= { 4.19 }
-    , containers         ^>= { 0.7 }
+    , base               ^>= { 4.16, 4.17, 4.18, 4.19 }
+    , containers         ^>= { 0.6, 0.7 }
     , general-allocate   ^>= { 0.2.3 }
     , parametric-functor ^>= { 0.1.1 }
     , primitive          ^>= { 0.9 }
-    , transformers       ^>= { 0.6 }
+    , transformers       ^>= { 0.5, 0.6 }
 
   hs-source-dirs:   src
+  if impl(ghc >= 9.6)
+    hs-source-dirs: compat/new
+  else
+    hs-source-dirs: compat/old
+
   default-language: GHC2021
 
 test-suite e11y

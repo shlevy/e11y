@@ -50,6 +50,7 @@ import Data.Functor.Parametric
 import Data.Functor.Product
 import Data.Kind
 import Data.Proxy
+import Observe.Event.Compat
 
 {- | A resource allowing creation of new 'Event's.
 
@@ -138,7 +139,7 @@ instance (EventBackendIn m b1, EventBackendIn m b2, RootSelector b1 ~ RootSelect
 Note that this instance is [incoherent](https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/instances.html#overlapping-instances),
 so it can be overridden for your @backend@ if need be. This instance will still be used in monad-generic code, however.
 -}
-instance {-# INCOHERENT #-} (EventBackendIn m backend, ParametricMonadTrans t) ⇒ EventBackendIn (t m) backend where
+instance {-# INCOHERENT #-} (EventBackendIn m backend, ParametricMonadTrans t, MonadTransMonadConstraint t m) ⇒ EventBackendIn (t m) backend where
   newEvent = (lift .) . newEvent
   newInstantEvent = (lift .) . newInstantEvent
 
@@ -215,7 +216,7 @@ unwrapPairParams params =
 Note that this instance is [incoherent](https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/instances.html#overlapping-instances),
 so it can be overridden for your @event@ type if need be. This instance will still be used in monad-generic code, however.
 -}
-instance {-# INCOHERENT #-} (EventIn m event, ParametricMonadTrans t) ⇒ EventIn (t m) event where
+instance {-# INCOHERENT #-} (EventIn m event, ParametricMonadTrans t, MonadTransMonadConstraint t m) ⇒ EventIn (t m) event where
   finalize = (lift .) . finalize
   addField = (lift .) . addField
 

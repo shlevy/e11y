@@ -30,14 +30,48 @@
 
       perSystem = { system, config, pkgs, ... }:
         let
-          project = pkgs.haskell-nix.cabalProject' {
+          versions = rec {
+            ghc981 = {
+              base = "4.19";
+              text = "2.1";
+              containers = "0.7";
+              transformers = "0.6";
+            };
+            ghc963 = ghc981 // {
+              base = "4.18";
+              text = "2.0";
+              containers = "0.6";
+            };
+            ghc948 = ghc963 // {
+              base = "4.17";
+              transformers = "0.5";
+            };
+            ghc928 = ghc948 // {
+              base = "4.16";
+              tet = "1.2";
+            };
+          };
+
+          variants = lib.mapAttrs (ghc: libs: {
+            compiler-nix-name = ghc;
+            cabalProjectLocal = ''
+              constraints: ${
+                lib.concatStringsSep ", "
+                (lib.mapAttrsToList (pkg: ver: "${pkg} ^>= ${ver}") libs)
+              }
+            '';
+          }) versions;
+
+          project = pkgs.haskell-nix.cabalProject' (variants.ghc981 // {
             src = ./.;
-            compiler-nix-name = "ghc981";
             shell.tools = {
               cabal = { };
               fourmolu = { };
             };
-          };
+            flake.variants = lib.mapAttrs (_: cfg:
+              lib.mapAttrs (_: lib.mkForce)
+              (cfg // { shell.tools = { cabal = { }; }; })) variants;
+          });
 
           flake = project.flake { };
         in {
