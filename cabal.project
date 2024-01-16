@@ -12,8 +12,9 @@
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
 
-index-state: 2024-01-14T00:00:00Z
-packages: .
+index-state: 2024-01-16T00:00:00Z
+packages: . ./e11y-otel
+
 tests: True
 test-show-details: streaming
 
@@ -21,20 +22,26 @@ test-show-details: streaming
 -- Once that's fixed we can just have a top-level @coverage: True@ setting
 package e11y
   coverage: True
+package e11y-otel
+  coverage: True
 
 program-options
   ghc-options: -Wall -Wunused-packages -Wcompat
-
-source-repository-package
-  type: git
-  location: https://github.com/shlevy/parametric-functor
-  tag: v0.1.1.0
-  --sha256: 1qqgdp7ji7f9fbkizm2hj1wa034vpdbsyvdlzh0bwdwn1pimrs9c
 
 allow-newer:
   aeson:containers,
   hashable:containers,
   indexed-traversable:containers,
+  proto-lens:base,
+  proto-lens:containers,
+  proto-lens:ghc-prim,
+  proto-lens:primitive,
+  proto-lens:deepseq,
+  proto-lens-runtime:deepseq,
+  proto-lens-runtime:base,
+  proto-lens-runtime:containers,
+  lens-family:containers,
+  lens-family-core:containers,
   scientific:containers,
   semialign:containers,
   -- https://github.com/diagrams/svg-builder/issues/19
