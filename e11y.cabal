@@ -3,7 +3,7 @@ name:            e11y
 version:         0.1.0.0
 synopsis:        An event-oriented observability library
 description:
-  Instrument your Haskell codebase with wide, semantically meaningful events.
+  Instrument your Haskell codebase with [wide, semantically meaningful events](https://charity.wtf/2022/08/15/live-your-best-life-with-structured-events/).
 
   This library is designed with separating the following concerns in mind:
 
@@ -28,6 +28,14 @@ description:
 
   See "Observe.Event.Backend.Data" for an @EventBackend@ that represents the stream of events as
   ordinary Haskell data.
+
+  See [e11y-otel](https://hackage.haskell.org/package/e11y-otel) for an OpenTelemetry-based
+  backend.
+
+  This is a rewrite of [eventuo11y](https://hackage.haskell.org/package/eventuo11y), designed
+  to be easier to use, less intrusive, and not nearly as annoying to write/say. The name
+  is a shortening of "event-based observability" (event-based -> e, observability -> o11y), and
+  can be pronounced "eh-lee" or "ee-eleven-why".
 bug-reports:     https://github.com/shlevy/e11y/issues
 homepage:        https://github.com/shlevy/e11y
 license:         Apache-2.0
