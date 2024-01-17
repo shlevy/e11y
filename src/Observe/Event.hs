@@ -52,7 +52,7 @@ module Observe.Event
     SubSelector
   , NoEventsSelector
 
-    -- ** Selector rendering
+    -- ** Selector rendering #rendering#
 
     -- | 'EventBackend's will typically require the user to provide a "rendering function"
     -- to translate 'Event'-based instrumentation into the format required for the backend.

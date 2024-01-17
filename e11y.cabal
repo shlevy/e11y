@@ -1,6 +1,6 @@
 cabal-version:   3.0
 name:            e11y
-version:         0.1.0.0
+version:         0.1.0.1
 synopsis:        An event-oriented observability library
 description:
   Instrument your Haskell codebase with [wide, semantically meaningful events](https://charity.wtf/2022/08/15/live-your-best-life-with-structured-events/).

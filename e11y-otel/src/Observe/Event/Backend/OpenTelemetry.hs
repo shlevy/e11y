@@ -67,17 +67,17 @@ data TracerEventBackend selector = TracerEventBackend
   -- See the [hs-opentelemetry-sdk intialization docs](https://hackage.haskell.org/package/hs-opentelemetry-sdk#initialization) for
   -- the typical way of getting a 'Tracer' in your application.
   , render ∷ !(RenderOTel selector)
-  -- ^ The domain-specific logic for translating 'Observe.Event.Event's rooted
-  -- in a given [selector](https://hackage.haskell.org/package/e11y/docs/Observe-Event.html#g:selectorAndField).
+  -- ^ The domain-specific logic for [rendering](https://hackage.haskell.org/package/e11y/docs/Observe-Event.html#g:rendering)
+  -- 'Observe.Event.Event's rooted in a given [selector](https://hackage.haskell.org/package/e11y/docs/Observe-Event.html#g:selectorAndField).
   }
 
-{- | The domain-specific logic for translating 'Observe.Event.Event's rooted
-in a given [selector](https://hackage.haskell.org/package/e11y/docs/Observe-Event.html#g:selectorAndField).
+{- | The domain-specific logic for [rendering](https://hackage.haskell.org/package/e11y/docs/Observe-Event.html#g:rendering)
+'Observe.Event.Event's rooted in a given [selector](https://hackage.haskell.org/package/e11y/docs/Observe-Event.html#g:selectorAndField).
 -}
 type RenderOTel selector = ∀ field. Selectors selector field → OTelRendered field
 
-{- | The domain-specific logic for translating a specific 'Observe.Event.Event'
-with a given [field](https://hackage.haskell.org/package/e11y/docs/Observe-Event.html#g:selectorAndField)
+{- | The domain-specific logic for [rendering](https://hackage.haskell.org/package/e11y/docs/Observe-Event.html#g:rendering)
+a specific 'Observe.Event.Event' with a given [field](https://hackage.haskell.org/package/e11y/docs/Observe-Event.html#g:selectorAndField)
 type.
 -}
 data OTelRendered field = OTelRendered
