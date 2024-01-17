@@ -47,18 +47,19 @@ However, it will never update that 'Context', as the primitive 'EventBackend' AP
 consumed in a scoped context or one allowing for general interleaving.
 
 When possible, events created with 'Observe.Event.instantEvent' will use the span event API. However, this requires a parent event
-(explicitly specified or found in the thread-local 'Context'), so the backend will fallback to creating and 'finalize'ing a new
-'Span'. If a span event is created, the resulting 'Observe.Event.eventReference' will be to its parent, as span events cannot be parents/links.
-Span events do not allow for non-parent links, so any @causes@ are dropped; in the future, we may either add them as custom
-'Attribute's or fall back to a full span if any are specified.
+(specified through @e11y@'s interfaces or found in the thread-local 'Context'), without which backend will fallback to creating
+and 'endSpan'ing a new 'Span'. If a span event is created, the resulting 'Observe.Event.eventReference' will refer to its parent,
+as span events cannot be parents/links. Span events do not allow for non-parent links, so any @causes@ are dropped; in the future,
+we may either add them as custom 'Attribute's or fall back to a full span if any are specified.
 
 Event t'Link's are currently not given any attributes. In the future, arbitrary link metadata could be added to the core 'EventBackend'
 API, in which case we could add a renderer for the link metadata type.
 
 The underlying 'Tracer' is responsible for timestamping.
 
-Exceptions are 'recordException'ed without any custom attributes. In the future, an @Exception -> HashMap Text Attribute@
-argument could be added, or arbitrary exception metadata added to 'Observe.Event.finalizeEvent'.
+Exceptions are 'recordException'ed as escaped exceptions, without any custom attributes.
+In the future, an @Exception -> HashMap Text Attribute@ argument could be added, or
+arbitrary exception metadata added to 'Observe.Event.finalizeEvent'.
 -}
 data TracerEventBackend selector = TracerEventBackend
   { tracer ∷ !Tracer
