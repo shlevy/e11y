@@ -29,24 +29,34 @@ program-options
   ghc-options: -Wall -Wunused-packages -Wcompat
 
 allow-newer:
+  -- https://github.com/haskell/aeson/issues/1083
   aeson:containers,
+  -- https://github.com/haskell-unordered-containers/hashable/issues/283
   hashable:containers,
+  -- https://github.com/haskellari/indexed-traversable/issues/35
   indexed-traversable:containers,
+  -- https://github.com/google/proto-lens/issues/461
   proto-lens:base,
   proto-lens:containers,
   proto-lens:ghc-prim,
   proto-lens:primitive,
-  proto-lens:deepseq,
-  proto-lens-runtime:deepseq,
   proto-lens-runtime:base,
   proto-lens-runtime:containers,
+  -- https://github.com/google/proto-lens/issues/459
+  proto-lens:deepseq,
+  proto-lens-runtime:deepseq,
+  -- Sent roconnor an email...
   lens-family:containers,
   lens-family-core:containers,
+  -- https://github.com/basvandijk/scientific/issues/98
   scientific:containers,
+  -- https://github.com/haskellari/these/issues/192
   semialign:containers,
   -- https://github.com/diagrams/svg-builder/issues/19
   svg-builder:base,
+  -- https://github.com/diagrams/svg-builder/issues/20
   svg-builder:text,
   -- https://github.com/judah/terminfo/pull/55#issuecomment-1876894232
   terminfo:base,
+  -- https://github.com/haskellari/these/issues/192
   witherable:containers
