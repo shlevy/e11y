@@ -20,8 +20,6 @@
 
 module Main where
 
-import Control.Concurrent.Async
-import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad.With
 import Data.Foldable
@@ -36,7 +34,7 @@ import Observe.Event.Backend.OpenTelemetry
 import OpenTelemetry.Attributes
 import OpenTelemetry.Context
 import OpenTelemetry.Context.ThreadLocal
-import OpenTelemetry.Processor
+import OpenTelemetry.Exporter.InMemory
 import OpenTelemetry.Trace
 import OpenTelemetry.Trace.Core
 import OpenTelemetry.Util
@@ -81,32 +79,26 @@ data TestException = TestException deriving (Show)
 
 instance Exception TestException
 
-dummyTracer ∷ MVar [ImmutableSpan] → IO Tracer
-dummyTracer var = do
+dummyTracer ∷ IO (Tracer, IORef [ImmutableSpan])
+dummyTracer = do
   (_, options) ← getTracerProviderInitializationOptions
-  let processor =
-        Processor
-          { processorOnStart = \_ _ → pure ()
-          , processorOnEnd = \spanRef → do
-              s ← readIORef spanRef
-              modifyMVar_ var $ \spans → pure (s : spans)
-          , processorShutdown = async $ pure ShutdownSuccess
-          , processorForceFlush = pure ()
-          }
+  (processor, var) ← inMemoryListExporter
   provider ← createTracerProvider [processor] options
-  pure $ makeTracer provider (InstrumentationLibrary "dummy" "1.0.0") tracerOptions
+  pure
+    ( makeTracer provider (InstrumentationLibrary "dummy" "1.0.0") tracerOptions
+    , var
+    )
 
 main ∷ IO ()
 main = sydTest $ do
   let setupTracer = do
-        spansVar ← newMVar []
-        tracer ← dummyTracer spansVar
+        (tracer, spansVar) ← dummyTracer
         pure (spansVar, tracer)
   before setupTracer $ describe "TracerEventBackend" $ do
     it "creates spans" $ \(spansVar, tracer) → do
       let ?e11yBackend = TracerEventBackend{tracer, render = renderTestSelector}
       (withEvent Test $ pure ()) ∷ IO ()
-      spans ← readMVar spansVar
+      spans ← readIORef spansVar
 
       s ← case spans of
         [s] → pure s
@@ -120,7 +112,7 @@ main = sydTest $ do
     it "creates parentless events when the Context is empty" $ \(spansVar, tracer) → do
       let ?e11yBackend = TracerEventBackend{tracer, render = renderTestSelector}
       (withEvent Test $ pure ()) ∷ IO ()
-      spans ← readMVar spansVar
+      spans ← readIORef spansVar
 
       s ← case spans of
         [] → expectationFailure "no spans created"
@@ -139,7 +131,7 @@ main = sydTest $ do
         adjustContext $ insertSpan eventReference
         let ?e11yBackend = be
         (withEvent Test $ pure ()) ∷ IO ()
-      spans ← readMVar spansVar
+      spans ← readIORef spansVar
 
       (parent, child) ← case spans of
         [parent, child] → pure (parent, child)
@@ -156,7 +148,7 @@ main = sydTest $ do
       _ ∷ () ← withEvent Test $ do
         adjustContext $ insertSpan s1
         (withEvent SubTest $ pure ()) ∷ IO ()
-      spans ← readMVar spansVar
+      spans ← readIORef spansVar
 
       (parent, child) ← case spans of
         [parent, child, _] → pure (parent, child)
@@ -171,7 +163,7 @@ main = sydTest $ do
       let ?e11yBackend = TracerEventBackend{tracer, render = renderTestSelector}
       _ ∷ () ← withEvent Test $ do
         withRelatedEvent SubTest Nothing [eventReference] $ do pure ()
-      spans ← readMVar spansVar
+      spans ← readIORef spansVar
 
       (parent, child) ← case spans of
         [parent, child] → pure (parent, child)
@@ -197,7 +189,7 @@ main = sydTest $ do
                 , initialFields = [TestField]
                 }
       generalWith alloc $ \_ → pure ()
-      spans ← readMVar spansVar
+      spans ← readIORef spansVar
 
       s ← case spans of
         [s] → pure s
@@ -213,7 +205,7 @@ main = sydTest $ do
     it "creates instant parentless events as spans when the Context is empty" $ \(spansVar, tracer) → do
       let ?e11yBackend = TracerEventBackend{tracer, render = renderTestSelector}
       !_ ← instantEvent Test []
-      spans ← readMVar spansVar
+      spans ← readIORef spansVar
 
       s ← case spans of
         [] → expectationFailure "no spans created"
@@ -233,7 +225,7 @@ main = sydTest $ do
         let ?e11yBackend = be
         !_ ← instantEvent Test []
         pure ()
-      spans ← readMVar spansVar
+      spans ← readIORef spansVar
 
       parent ← case spans of
         [parent] → pure parent
@@ -253,7 +245,7 @@ main = sydTest $ do
       _ ∷ () ← withEvent Test $ do
         _ ← instantEvent SubTest [SubTestField]
         pure ()
-      spans ← readMVar spansVar
+      spans ← readIORef spansVar
 
       parent ← case spans of
         [parent] → pure parent
@@ -274,7 +266,7 @@ main = sydTest $ do
     it "sets event exceptions" $ \(spansVar, tracer) → do
       let ?e11yBackend = TracerEventBackend{tracer, render = renderTestSelector}
       (withEvent Test $ finalizeEvent (Just (SomeException TestException))) ∷ IO ()
-      spans ← readMVar spansVar
+      spans ← readIORef spansVar
 
       s ← case spans of
         [s] → pure s
@@ -294,7 +286,7 @@ main = sydTest $ do
     it "adds fields as attributes" $ \(spansVar, tracer) → do
       let ?e11yBackend = TracerEventBackend{tracer, render = renderTestSelector}
       (withEvent Test $ addEventField TestField) ∷ IO ()
-      spans ← readMVar spansVar
+      spans ← readIORef spansVar
 
       s ← case spans of
         [s] → pure s
